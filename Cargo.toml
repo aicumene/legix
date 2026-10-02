@@ -300,7 +300,8 @@ members = [
     "legix-fsck",
     "tests/tools",
     "tests/it",
-    "legix-shallow"
+    "legix-shallow",
+    "legix-sign",
 ]
 
 [workspace.dependencies]

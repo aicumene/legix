@@ -1,0 +1,35 @@
+lints.workspace = true
+
+[package]
+name = "legix-sign"
+version = "0.1.0"
+description = "Signed history for git: sign and verify commits in git's SSH signature format, in process, with allowed-signers trust"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+authors = ["Ivan Menshikov <menshivan@gmail.com>"]
+edition = "2024"
+rust-version = "1.88"
+keywords = ["git", "signing", "ssh", "sshsig", "legix"]
+categories = ["cryptography", "development-tools"]
+include = ["src/**/*", "README.md", "LICENSE-*"]
+
+[features]
+default = ["repository"]
+## Helpers on `legix::Repository` that create signed commits and verify stored ones. They follow the engine's API
+## (the `legix` crate) rather than the stable API of this crate.
+repository = ["dep:legix", "dep:legix-ref"]
+
+[dependencies]
+legix-object = { version = "^0.65.0", path = "../legix-object", features = ["sha1", "sha256"] }
+legix-hash = { version = "^0.27.0", path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+legix = { version = "^0.88.0", path = "../legix", optional = true, features = ["sha256"] }
+legix-ref = { version = "^0.68.0", path = "../legix-ref", optional = true }
+
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
+jiff = "0.2.25"
+ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "p256", "rand_core", "getrandom"] }
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tempfile = "3.26.0"
