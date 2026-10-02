@@ -1,0 +1,122 @@
+use legix_error::ExnMessageResult;
+
+fn corrupt(message: &'static str) -> legix_error::Message {
+    legix_error::corruption(format!("Corrupt delta data: {message}"))
+}
+
+/// Given the decompressed pack delta `d`, decode a size in bytes (either the base object size or the result object size)
+/// Equivalent to [this canonical git function](https://github.com/git/git/blob/311531c9de557d25ac087c1637818bd2aad6eb3a/delta.h#L89)
+pub(crate) fn decode_header_size(d: &[u8]) -> ExnMessageResult<(u64, usize)> {
+    let mut shift = 0;
+    let mut size = 0u64;
+    let mut consumed = 0;
+    for cmd in d.iter() {
+        if shift >= u64::BITS {
+            return Err(corrupt("delta header size uses more bits than fit into u64").into());
+        }
+        consumed += 1;
+        size |= (u64::from(*cmd) & 0x7f) << shift;
+        shift += 7;
+        if *cmd & 0x80 == 0 {
+            return Ok((size, consumed));
+        }
+    }
+    Err(corrupt("delta header size is truncated").into())
+}
+
+pub(crate) fn apply(base: &[u8], mut target: &mut [u8], data: &[u8]) -> ExnMessageResult {
+    fn next_byte(data: &[u8], i: &mut usize) -> ExnMessageResult<u8> {
+        let byte = *data
+            .get(*i)
+            .ok_or_else(|| corrupt("delta copy instruction is truncated"))?;
+        *i += 1;
+        Ok(byte)
+    }
+
+    let mut i = 0;
+    while let Some(cmd) = data.get(i) {
+        i += 1;
+        let bytes = match cmd {
+            cmd if cmd & 0b1000_0000 != 0 => {
+                let (mut ofs, mut size): (u32, u32) = (0, 0);
+                if cmd & 0b0000_0001 != 0 {
+                    ofs = u32::from(next_byte(data, &mut i)?);
+                }
+                if cmd & 0b0000_0010 != 0 {
+                    ofs |= u32::from(next_byte(data, &mut i)?) << 8;
+                }
+                if cmd & 0b0000_0100 != 0 {
+                    ofs |= u32::from(next_byte(data, &mut i)?) << 16;
+                }
+                if cmd & 0b0000_1000 != 0 {
+                    ofs |= u32::from(next_byte(data, &mut i)?) << 24;
+                }
+                if cmd & 0b0001_0000 != 0 {
+                    size = u32::from(next_byte(data, &mut i)?);
+                }
+                if cmd & 0b0010_0000 != 0 {
+                    size |= u32::from(next_byte(data, &mut i)?) << 8;
+                }
+                if cmd & 0b0100_0000 != 0 {
+                    size |= u32::from(next_byte(data, &mut i)?) << 16;
+                }
+                if size == 0 {
+                    size = 0x10000; // 65536
+                }
+                let ofs = ofs as usize;
+                let end = ofs
+                    .checked_add(size as usize)
+                    .ok_or_else(|| corrupt("delta copy range overflows"))?;
+                base.get(ofs..end)
+                    .ok_or_else(|| corrupt("delta copy range exceeds base object size"))?
+            }
+            0 => {
+                return Err(corrupt("delta command 0 is reserved and invalid").into());
+            }
+            size => {
+                let end = i
+                    .checked_add(*size as usize)
+                    .ok_or_else(|| corrupt("delta insert range overflows"))?;
+                let bytes = data
+                    .get(i..end)
+                    .ok_or_else(|| corrupt("delta insert data is truncated"))?;
+                i = end;
+                bytes
+            }
+        };
+        let (out, rest) = target
+            .split_at_mut_checked(bytes.len())
+            .ok_or_else(|| corrupt("delta instructions produced more bytes than promised"))?;
+        out.copy_from_slice(bytes);
+        target = rest;
+    }
+    debug_assert_eq!(
+        i,
+        data.len(),
+        "delta instructions were not consumed completely, should be impossible"
+    );
+    if !target.is_empty() {
+        return Err(corrupt("delta instructions produced fewer bytes than promised").into());
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn instructions_cannot_exceed_the_declared_result_size() {
+        let mut error_snapshots = Vec::new();
+        for instructions in [b"\x90\x02".as_slice(), b"\x02ab".as_slice()] {
+            let err = super::apply(b"ab", &mut [0], instructions)
+                .expect_err("neither copying nor inserting may truncate the result");
+            error_snapshots.push(legix_testtools::redact_debug_snapshot(&(err), &[]));
+        }
+        insta::assert_debug_snapshot!(error_snapshots, "instructions cannot exceed the declared result size", @"
+        [
+            Corrupt delta data: delta instructions produced more bytes than promised,
+            Corrupt delta data: delta instructions produced more bytes than promised,
+        ]
+        ");
+    }
+}

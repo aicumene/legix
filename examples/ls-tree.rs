@@ -1,10 +1,10 @@
 use std::io::{Write, stdout};
 
 use clap::Parser;
-use gix::{ObjectId, bstr::BString, objs::tree::EntryMode, traverse::tree::Recorder};
+use legix::{ObjectId, bstr::BString, objs::tree::EntryMode, traverse::tree::Recorder};
 
 fn main() {
-    let args = Args::parse_from(gix::env::args_os());
+    let args = Args::parse_from(legix::env::args_os());
     match run(args) {
         Ok(()) => {}
         Err(e) => eprintln!("error: {e}"),
@@ -30,7 +30,7 @@ struct Args {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
-    let repo = gix::discover(".")?;
+    let repo = legix::discover(".")?;
     let tree = repo.rev_parse_single(&*args.treeish)?.object()?.peel_to_tree()?;
     let entries = if args.recursive {
         let mut recorder = Recorder::default();

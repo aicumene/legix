@@ -1,0 +1,227 @@
+use std::{
+    ffi::OsStr,
+    path::{Component, Path, PathBuf},
+};
+
+use bstr::{BStr, BString, ByteSlice};
+use legix_error::{ErrorExt, ExnMessageResult, validation};
+
+use crate::Stack;
+
+/// Obtain an iterator over `OsStr`-components which are normal, none-relative and not absolute.
+pub trait ToNormalPathComponents {
+    /// Return an iterator over the normal components of a path, without the separator.
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>>;
+}
+
+impl ToNormalPathComponents for &Path {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>> {
+        self.components().map(|c| component_to_os_str(c, self.display()))
+    }
+}
+
+impl ToNormalPathComponents for PathBuf {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>> {
+        self.components().map(|c| component_to_os_str(c, self.display()))
+    }
+}
+
+fn component_to_os_str(
+    component: Component<'_>,
+    path_with_component: impl std::fmt::Display,
+) -> ExnMessageResult<&OsStr> {
+    match component {
+        Component::Normal(os_str) => Ok(os_str),
+        _ => Err(validation(format!(
+            "Input path \"{path_with_component}\" contains relative or absolute components"
+        ))
+        .raise()),
+    }
+}
+
+impl ToNormalPathComponents for &BStr {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>> {
+        self.split(|b| *b == b'/')
+            .filter_map(|c| bytes_component_to_os_str(c, self))
+    }
+}
+
+impl ToNormalPathComponents for &str {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>> {
+        self.split('/')
+            .filter_map(|c| bytes_component_to_os_str(c.as_bytes(), (*self).into()))
+    }
+}
+
+impl ToNormalPathComponents for &BString {
+    fn to_normal_path_components(&self) -> impl Iterator<Item = ExnMessageResult<&OsStr>> {
+        self.split(|b| *b == b'/')
+            .filter_map(|c| bytes_component_to_os_str(c, self.as_bstr()))
+    }
+}
+
+fn bytes_component_to_os_str<'a>(component: &'a [u8], path: &BStr) -> Option<ExnMessageResult<&'a OsStr>> {
+    if component.is_empty() {
+        return None;
+    }
+    let component = match legix_path::try_from_byte_slice(component.as_bstr()) {
+        Ok(c) => c,
+        Err(err) => return Some(Err(err)),
+    };
+    let component = component.components().next()?;
+    Some(component_to_os_str(component, path))
+}
+
+/// Access
+impl Stack {
+    /// Returns the top-level path of the stack.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Returns the absolute path the currently set path.
+    pub fn current(&self) -> &Path {
+        &self.current
+    }
+
+    /// Returns the currently set path relative to the [`root()`][Stack::root()].
+    pub fn current_relative(&self) -> &Path {
+        &self.current_relative
+    }
+}
+
+/// A delegate for use in a [`Stack`].
+pub trait Delegate {
+    /// Called whenever we push a directory on top of the stack, and after the respective call to [`push()`](Self::push).
+    ///
+    /// It is only called if the currently acted on path is a directory in itself, which is determined by knowing
+    /// that it's not the last component of the path.
+    /// Use [`Stack::current()`] to see the directory.
+    fn push_directory(&mut self, stack: &Stack) -> std::io::Result<()>;
+
+    /// Called after any component was pushed, and for every requested terminal component even if it was cached,
+    /// with the path available at [`Stack::current()`].
+    ///
+    /// `is_last_component` is `true` if the path is completely built, which typically means it's not a directory.
+    fn push(&mut self, is_last_component: bool, stack: &Stack) -> std::io::Result<()>;
+
+    /// Called right after a directory-component was popped off the stack.
+    ///
+    /// Use it to pop information off internal data structures. Note that no equivalent call exists for popping
+    /// the file-component.
+    fn pop_directory(&mut self);
+}
+
+impl Stack {
+    /// Create a new instance with `root` being the base for all future paths we handle, assuming it to be valid which includes
+    /// symbolic links to be included in it as well.
+    pub fn new(root: PathBuf) -> Self {
+        Stack {
+            current: root.clone(),
+            current_relative: PathBuf::with_capacity(128),
+            valid_components: 0,
+            root,
+            current_is_directory: true,
+        }
+    }
+
+    /// Set the current stack to point to the `relative` path, calling [`Delegate::push()`] for new components
+    /// and for the terminal component, even when the latter was cached.
+    ///
+    /// Only leading directories remain cached. The caller may replace the terminal entry without invalidating the
+    /// stack: using it as a leading directory later will validate it again. Shared leading directories are reused
+    /// without additional delegate calls and must not be changed by the caller or other actors.
+    /// Directory push/pop calls remain balanced even when a previously leading directory becomes a terminal entry.
+    ///
+    /// The path is also expected to be normalized, and should not contain extra separators, and must not contain `..`
+    /// or have leading or trailing slashes (or additionally backslashes on Windows).
+    pub fn make_relative_path_current(
+        &mut self,
+        relative: impl ToNormalPathComponents,
+        delegate: &mut dyn Delegate,
+    ) -> std::io::Result<()> {
+        let mut components = relative.to_normal_path_components().peekable();
+        if self.valid_components != 0 && components.peek().is_none() {
+            return Err(std::io::Error::other("empty inputs are not allowed"));
+        }
+        if self.valid_components == 0 {
+            delegate.push_directory(self)?;
+        }
+
+        let mut existing_components = self.current_relative.components();
+        let mut matching_components = 0;
+        while let (Some(existing_comp), Some(new_comp)) = (existing_components.next(), components.peek()) {
+            match new_comp {
+                Ok(new_comp) => {
+                    if existing_comp.as_os_str() == *new_comp {
+                        components.next();
+                        matching_components += 1;
+                    } else {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    let err = components.next().expect("just peeked").expect_err("peeked an error");
+                    return Err(std::io::Error::other(err.into_error()));
+                }
+            }
+        }
+
+        for _ in 0..self.valid_components - matching_components {
+            self.current.pop();
+            self.current_relative.pop();
+            if self.current_is_directory {
+                delegate.pop_directory();
+            }
+            self.current_is_directory = true;
+        }
+        self.valid_components = matching_components;
+
+        if matching_components != 0 && components.peek().is_none() {
+            // The caller may replace this entry, so it must no longer be cached as a leading directory.
+            if self.current_is_directory {
+                delegate.pop_directory();
+                self.current_is_directory = false;
+            }
+            return delegate.push(true, self);
+        }
+
+        if !self.current_is_directory && components.peek().is_some() {
+            delegate.push(false, self)?;
+            // Make sure we don't consider this a directory if the `push` above fails.
+            self.current_is_directory = true;
+            if let Err(err) = delegate.push_directory(self) {
+                self.current_is_directory = false;
+                return Err(err);
+            }
+        }
+
+        while let Some(comp) = components.next() {
+            let comp = comp.map_err(|err| std::io::Error::other(err.into_error()))?;
+            let is_last_component = components.peek().is_none();
+            let parent_is_directory = self.current_is_directory;
+            self.current_is_directory = !is_last_component;
+            self.current.push(comp);
+            self.current_relative.push(comp);
+            self.valid_components += 1;
+            let res = delegate.push(is_last_component, self);
+            if let Err(err) = res {
+                self.current.pop();
+                self.current_relative.pop();
+                self.valid_components -= 1;
+                self.current_is_directory = parent_is_directory;
+                return Err(err);
+            }
+            if self.current_is_directory
+                && let Err(err) = delegate.push_directory(self)
+            {
+                self.current.pop();
+                self.current_relative.pop();
+                self.valid_components -= 1;
+                self.current_is_directory = parent_is_directory;
+                return Err(err);
+            }
+        }
+        Ok(())
+    }
+}

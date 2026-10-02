@@ -1,0 +1,176 @@
+use std::cmp::Ordering;
+
+use bstr::ByteSlice;
+use legix_error::{ErrorExt, ExnMessageResult, ResultExt};
+use legix_object::FindExt;
+
+use crate::extension::Tree;
+
+impl Tree {
+    /// Validate the correctness of this instance. If `use_objects` is true, then `objects` will be used to access all objects.
+    pub fn verify(&self, use_objects: bool, objects: impl legix_object::Find) -> ExnMessageResult {
+        fn verify_recursive(
+            parent_id: legix_hash::ObjectId,
+            children: &[Tree],
+            mut object_buf: Option<&mut Vec<u8>>,
+            objects: &impl legix_object::Find,
+        ) -> ExnMessageResult<Option<u32>> {
+            if children.is_empty() {
+                return Ok(None);
+            }
+            let mut entries = 0u32;
+            let mut prev = None::<&Tree>;
+            for child in children {
+                entries = entries.checked_add(child.num_entries.unwrap_or(0)).ok_or_else(|| {
+                    legix_error::corruption("The combined TREE entry count exceeds the supported maximum").raise()
+                })?;
+                if let Some(prev) = prev
+                    && prev.name.cmp(&child.name) != Ordering::Less
+                {
+                    return Err(legix_error::corruption(format!(
+                        "Parent tree '{parent_id}' contained out-of order trees prev = '{}' and next = '{}'",
+                        prev.name.as_bstr(),
+                        child.name.as_bstr()
+                    ))
+                    .raise());
+                }
+                prev = Some(child);
+            }
+            if let Some(buf) = object_buf.as_mut() {
+                let tree_entries = objects
+                    .find_tree_iter(&parent_id, buf)
+                    .or_raise(|| legix_error::corruption("Tree node could not be found"))?;
+                let mut num_entries = 0;
+                for entry in tree_entries {
+                    let entry = entry
+                        .or_raise(|| legix_error::corruption(format!("Could not decode an entry in tree {parent_id}")))?;
+                    if !entry.mode.is_tree() {
+                        continue;
+                    }
+                    children
+                        .binary_search_by(|e| e.name.as_bstr().cmp(entry.filename))
+                        .map_err(|position| {
+                            legix_error::corruption(format!(
+                                "The entry {} at path '{}' in parent tree {parent_id} wasn't found at child position {position}, making it incomplete",
+                                entry.oid, entry.filename
+                            ))
+                            .raise()
+                        })?;
+                    num_entries += 1;
+                }
+
+                if num_entries != children.len() {
+                    return Err(legix_error::corruption(format!(
+                        "The tree with id {parent_id} should have {num_entries} children, but its cached representation had {} of them",
+                        children.len()
+                    ))
+                    .raise());
+                }
+            }
+            for child in children {
+                // This is actually needed here as it's a mut ref, which isn't copy. We do a re-borrow here.
+                let actual_num_entries =
+                    verify_recursive(child.id, &child.children, object_buf.as_deref_mut(), objects)?;
+                if let Some((actual, num_entries)) = actual_num_entries.zip(child.num_entries)
+                    && actual > num_entries
+                {
+                    return Err(legix_error::corruption(format!(
+                        "Expected not more than {num_entries} entries to be reachable from the top-level, but actual count was {actual}"
+                    ))
+                    .raise());
+                }
+            }
+            Ok(entries.into())
+        }
+        let _span = legix_features::trace::coarse!("legix_index::extension::Tree::verify()");
+
+        if !self.name.is_empty() {
+            return Err(legix_error::corruption(format!(
+                "The root tree was named '{}', even though it should be empty",
+                self.name.as_bstr()
+            ))
+            .raise());
+        }
+
+        let mut buf = Vec::new();
+        let declared_entries = verify_recursive(self.id, &self.children, use_objects.then_some(&mut buf), &objects)?;
+        if let Some((actual, num_entries)) = declared_entries.zip(self.num_entries)
+            && actual > num_entries
+        {
+            return Err(legix_error::corruption(format!(
+                "Expected not more than {num_entries} entries to be reachable from the top-level, but actual count was {actual}"
+            ))
+            .raise());
+        }
+
+        Ok(())
+    }
+
+    /// Reject impossible cached entry counts using the total number of index entries as an upper bound.
+    ///
+    /// This is a cheap heuristic: it doesn't prove each cached subtree count matches its actual path range,
+    /// but no TREE node can describe more entries than the entire index contains.
+    pub(crate) fn verify_entries_count(&self, num_index_entries: usize) -> ExnMessageResult {
+        if let Some(actual) = self.num_entries
+            && actual as usize > num_index_entries
+        {
+            return Err(legix_error::corruption(format!(
+                "TREE entry '{}' declared {actual} entries, but the index only contains {num_index_entries} entries",
+                self.name.as_bstr()
+            ))
+            .raise());
+        }
+
+        for child in &self.children {
+            child.verify_entries_count(num_index_entries)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tree;
+    use legix_error::ExnResult;
+
+    struct MalformedTree;
+
+    impl legix_object::Find for MalformedTree {
+        fn try_find<'a>(
+            &self,
+            _id: &legix_hash::oid,
+            _buffer: &'a mut Vec<u8>,
+        ) -> ExnResult<Option<legix_object::Data<'a>>> {
+            Ok(Some(legix_object::Data::new(
+                b"40000 child\0",
+                legix_object::Kind::Tree,
+                legix_hash::Kind::Sha1,
+            )))
+        }
+    }
+
+    #[test]
+    fn malformed_object_tree_entries_are_not_ignored() {
+        let root_id = legix_hash::Kind::Sha1.null();
+        let tree = Tree {
+            name: Default::default(),
+            id: root_id,
+            num_entries: Some(1),
+            children: vec![Tree {
+                name: b"child".as_slice().into(),
+                id: root_id,
+                num_entries: Some(0),
+                children: Vec::new(),
+            }],
+        };
+
+        let err = tree.verify(true, MalformedTree).expect_err("malformed entry must fail");
+        insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "malformed object tree entries are not ignored", @"
+        Could not decode an entry in tree Oid(1)
+        |
+        └─ object parsing failed
+        ");
+        assert!(err.is_validation());
+    }
+}

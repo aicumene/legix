@@ -1,0 +1,62 @@
+lints.workspace = true
+
+[package]
+name = "legix-archive"
+version = "0.37.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "archive generation from of a worktree stream"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+
+[features]
+default = ["tar", "tar_gz", "zip"]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-worktree-stream/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-worktree-stream/sha256"]
+
+## Enable the `tar` archive format. It has support for all information, except for object ids.
+tar = ["dep:tar", "dep:legix-path"]
+## Enable the `tar.gz` archive format.
+tar_gz = ["tar", "dep:flate2"]
+
+## Enable the `zip` archive format.
+zip = ["dep:rawzip", "dep:flate2"]
+
+
+[dependencies]
+legix-worktree-stream = { version = "^0.37.0", path = "../legix-worktree-stream" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-path = { version = "^0.13.0", path = "../legix-path", optional = true }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+
+flate2 = { version = "1.1.9", optional = true, default-features = false, features = ["zlib-rs"] }
+rawzip = { version = "0.4.3", optional = true }
+
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+bstr = { version = "1.12.0", default-features = false }
+
+tar = { version = "0.4.46", optional = true }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools" }
+legix-odb = { path = "../legix-odb", features = ["sha1", "sha256"] }
+legix-worktree = { path = "../legix-worktree", default-features = false, features = [
+    "attributes",
+] }
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-attributes = { path = "../legix-attributes" }
+legix-object = { path = "../legix-object" }
+legix-filter = { path = "../legix-filter" }
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "document-features"]

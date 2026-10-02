@@ -1,0 +1,45 @@
+lints.workspace = true
+
+[package]
+name = "legix-worktree-stream"
+version = "0.37.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "generate a byte-stream from a git-tree"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-hash/sha256"]
+
+[dependencies]
+legix-features = { version = "^0.50.0", path = "../legix-features", features = ["progress", "io-pipe", "parallel"] }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-attributes = { version = "^0.36.0", path = "../legix-attributes", features = ["parallel"] }
+legix-filter = { version = "^0.35.0", path = "../legix-filter" }
+legix-traverse = { version = "^0.62.0", path = "../legix-traverse" }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+parking_lot = "0.12.4"
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-worktree-stream = { path = ".", features = ["sha1", "sha256"] }
+legix-testtools = { path = "../tests/tools" }
+legix-hash = { path = "../legix-hash" }
+legix-odb = { path = "../legix-odb" }
+legix-worktree = { path = "../legix-worktree", default-features = false, features = ["attributes"] }
+
+[package.metadata.docs.rs]
+features = ["sha1"]

@@ -1,0 +1,76 @@
+//!
+#![allow(clippy::empty_docs)]
+use crate::{Commit, Error, Object, Result, Tree, object::Kind};
+
+impl<'repo> Object<'repo> {
+    // TODO: tests
+    /// Follow tags to their target and commits to trees until the given `kind` of object is encountered.
+    ///
+    /// Note that this object doesn't necessarily have to be the end of the chain.
+    /// Typical values are [`Kind::Commit`] or [`Kind::Tree`].
+    pub fn peel_to_kind(mut self, kind: Kind) -> Result<Self> {
+        loop {
+            match self.kind {
+                our_kind if kind == our_kind => {
+                    return Ok(self);
+                }
+                Kind::Commit => {
+                    let tree_id = self
+                        .try_to_commit_ref_iter()
+                        .expect("commit")
+                        .tree_id()
+                        .expect("valid commit");
+                    let repo = self.repo;
+                    drop(self);
+                    self = repo.find_object(tree_id)?;
+                }
+                Kind::Tag => {
+                    let target_id = self.to_tag_ref_iter().target_id().expect("valid tag");
+                    let repo = self.repo;
+                    drop(self);
+                    self = repo.find_object(target_id)?;
+                }
+                Kind::Tree | Kind::Blob => {
+                    return Err(Error::from_error(legix_error::validation(format!(
+                        "Last encountered object {} was {} while trying to peel to {kind}",
+                        self.id().shorten().unwrap_or_else(|_| self.id.into()),
+                        self.kind,
+                    ))));
+                }
+            }
+        }
+    }
+
+    /// Peel this object into a tree and return it, if this is possible.
+    ///
+    /// This will follow tag objects and commits until their tree is reached.
+    pub fn peel_to_tree(self) -> Result<Tree<'repo>> {
+        Ok(self.peel_to_kind(legix_object::Kind::Tree)?.into_tree())
+    }
+
+    /// Peel this object into a commit and return it, if this is possible.
+    ///
+    /// This will follow tag objects until a commit is reached.
+    pub fn peel_to_commit(self) -> Result<Commit<'repo>> {
+        Ok(self.peel_to_kind(legix_object::Kind::Commit)?.into_commit())
+    }
+
+    // TODO: tests
+    /// Follow all tag object targets until a commit, tree or blob is reached.
+    ///
+    /// Note that this method is different from [`peel_to_kind(…)`][Object::peel_to_kind()] as it won't
+    /// peel commits to their tree, but handles tags only.
+    pub fn peel_tags_to_end(mut self) -> Result<Self> {
+        loop {
+            match self.kind {
+                Kind::Commit | Kind::Tree | Kind::Blob => break Ok(self),
+                Kind::Tag => {
+                    let target_id = self.to_tag_ref_iter().target_id().expect("valid tag");
+                    let repo = self.repo;
+                    drop(self);
+                    self = repo.find_object(target_id)?;
+                }
+            }
+        }
+    }
+}

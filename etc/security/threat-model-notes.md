@@ -6,7 +6,7 @@
 
 The security considerations and threat landscape for Gitoxide is similar to that of Git, with several of the most important differences being:
 
-1. Gitoxide is primarily a library project. Used as a library, it contains a the `gix` crate (which most users declare as their dependency) and numerous more special-purpose `gix-*` crates.
+1. Gitoxide is primarily a library project. Used as a library, it contains a the `legix` crate (which most users declare as their dependency) and numerous more special-purpose `gix-*` crates.
 
 2. Gitoxide does not ship a Unix-like environment on Windows. We prefer instead to treat Windows as a "first-class" platform, and because we are primarily a library, there is no clear reasonable way to ship an MSYS2 or similar environment of our own. However, typical operations on Git repositories often include running shell scripts and other commands that expect Unix-like tools and some aspects of Unix-like path semantics. We try to accommodate this on Windows, and we also search for a suitable POSIX-compatible shell to run shell scripts in, preferring one that accompanies a Git for Windows installation when it is present and when we can find it. The uncertainty associated with the environment in which users may configure some custom commands to run makes it so that some assumptions that might seem safe for us to make are not.
 

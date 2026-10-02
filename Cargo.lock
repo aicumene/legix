@@ -1470,1331 +1470,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitoxide"
-version = "0.59.0"
-dependencies = [
- "anyhow",
- "clap",
- "clap_complete",
- "crosstermion",
- "document-features",
- "env_logger",
- "futures-lite",
- "gitoxide-core",
- "gix",
- "gix-features",
- "gix-tix",
- "is-terminal",
- "prodash",
- "serde_derive",
- "terminal_size",
- "tracing",
- "tracing-forest 0.1.6",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "gitoxide-core"
-version = "0.62.0"
-dependencies = [
- "anyhow",
- "async-io",
- "async-net",
- "async-trait",
- "blocking",
- "bytesize",
- "crossbeam-channel",
- "document-features",
- "dua-core",
- "fs-err",
- "futures-io",
- "futures-lite",
- "gix",
- "gix-archive",
- "gix-error",
- "gix-fsck",
- "gix-pack",
- "gix-status",
- "gix-transport",
- "gix-url",
- "layout-rs",
- "open",
- "parking_lot",
- "rusqlite",
- "serde",
- "serde_json",
- "smallvec",
- "sysinfo",
- "tempfile",
- "tracing",
- "tracing-forest 0.2.0",
- "tracing-subscriber",
- "unicode-width",
-]
-
-[[package]]
-name = "gix"
-version = "0.88.0"
-dependencies = [
- "anyhow",
- "async-std",
- "document-features",
- "gix",
- "gix-actor",
- "gix-archive",
- "gix-attributes",
- "gix-blame",
- "gix-command",
- "gix-commitgraph",
- "gix-config",
- "gix-credentials",
- "gix-date",
- "gix-diff",
- "gix-dir",
- "gix-discover",
- "gix-error",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-glob",
- "gix-hash",
- "gix-hashtable",
- "gix-ignore",
- "gix-index",
- "gix-lock",
- "gix-mailmap",
- "gix-merge",
- "gix-negotiate",
- "gix-note",
- "gix-object",
- "gix-odb",
- "gix-pack",
- "gix-path",
- "gix-pathspec",
- "gix-prompt",
- "gix-protocol",
- "gix-quote",
- "gix-ref",
- "gix-refspec",
- "gix-revision",
- "gix-revwalk",
- "gix-sec",
- "gix-shallow",
- "gix-status",
- "gix-submodule",
- "gix-tempfile",
- "gix-testtools",
- "gix-trace",
- "gix-transport",
- "gix-traverse",
- "gix-url",
- "gix-utils",
- "gix-validate",
- "gix-worktree",
- "gix-worktree-state",
- "gix-worktree-stream",
- "gix-zlib",
- "insta",
- "is_ci",
- "nonempty",
- "parking_lot",
- "pretty_assertions",
- "prodash",
- "regex",
- "serde",
- "serial_test",
- "signal-hook 0.4.4",
- "smallvec",
- "termtree",
-]
-
-[[package]]
-name = "gix-actor"
-version = "0.43.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-testtools",
- "insta",
- "pretty_assertions",
- "serde",
-]
-
-[[package]]
-name = "gix-archive"
-version = "0.37.0"
-dependencies = [
- "bstr",
- "document-features",
- "flate2",
- "gix-attributes",
- "gix-date",
- "gix-error",
- "gix-filter",
- "gix-hash",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-testtools",
- "gix-worktree",
- "gix-worktree-stream",
- "rawzip",
- "tar",
-]
-
-[[package]]
-name = "gix-attributes"
-version = "0.36.0"
-dependencies = [
- "bstr",
- "criterion",
- "document-features",
- "gix-error",
- "gix-features",
- "gix-fs",
- "gix-glob",
- "gix-path",
- "gix-quote",
- "gix-testtools",
- "gix-trace",
- "insta",
- "serde",
- "smallvec",
- "unicode-bom",
-]
-
-[[package]]
-name = "gix-bitmap"
-version = "0.5.0"
-dependencies = [
- "gix-error",
- "gix-testtools",
-]
-
-[[package]]
-name = "gix-blame"
-version = "0.18.0"
-dependencies = [
- "gix-commitgraph",
- "gix-date",
- "gix-diff",
- "gix-error",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-ref",
- "gix-revwalk",
- "gix-testtools",
- "gix-trace",
- "gix-traverse",
- "gix-worktree",
- "insta",
- "pretty_assertions",
- "smallvec",
-]
-
-[[package]]
-name = "gix-chunk"
-version = "0.9.0"
-dependencies = [
- "gix-error",
-]
-
-[[package]]
-name = "gix-command"
-version = "0.11.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-path",
- "gix-quote",
- "gix-testtools",
- "gix-trace",
- "insta",
-]
-
-[[package]]
-name = "gix-commitgraph"
-version = "0.40.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-chunk",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-testtools",
- "insta",
- "memmap2",
- "nonempty",
- "serde",
-]
-
-[[package]]
-name = "gix-config"
-version = "0.61.0"
-dependencies = [
- "bstr",
- "bytesize",
- "cap",
- "criterion",
- "document-features",
- "gix-config",
- "gix-config-value",
- "gix-error",
- "gix-features",
- "gix-glob",
- "gix-path",
- "gix-ref",
- "gix-sec",
- "gix-testtools",
- "gix-utils",
- "insta",
- "serde",
- "serial_test",
- "smallvec",
- "unicode-bom",
-]
-
-[[package]]
-name = "gix-config-value"
-version = "0.20.0"
-dependencies = [
- "bitflags 2.13.0",
- "bstr",
- "document-features",
- "gix-error",
- "gix-path",
- "gix-testtools",
- "insta",
- "libc",
- "serde",
-]
-
-[[package]]
-name = "gix-credentials"
-version = "0.41.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-command",
- "gix-config-value",
- "gix-date",
- "gix-error",
- "gix-path",
- "gix-prompt",
- "gix-quote",
- "gix-sec",
- "gix-testtools",
- "gix-trace",
- "gix-url",
- "insta",
- "serde",
-]
-
-[[package]]
-name = "gix-date"
-version = "0.17.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-error",
- "gix-hash",
- "gix-testtools",
- "insta",
- "itoa",
- "jiff",
- "pretty_assertions",
- "serde",
-]
-
-[[package]]
-name = "gix-diff"
-version = "0.68.0"
-dependencies = [
- "bstr",
- "criterion",
- "document-features",
- "getrandom 0.4.3",
- "gix-attributes",
- "gix-command",
- "gix-error",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-imara-diff",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-pathspec",
- "gix-tempfile",
- "gix-testtools",
- "gix-trace",
- "gix-traverse",
- "gix-worktree",
- "insta",
- "pretty_assertions",
- "serde",
-]
-
-[[package]]
-name = "gix-dir"
-version = "0.30.0"
-dependencies = [
- "bstr",
- "gix-dir",
- "gix-discover",
- "gix-error",
- "gix-fs",
- "gix-ignore",
- "gix-index",
- "gix-object",
- "gix-path",
- "gix-pathspec",
- "gix-testtools",
- "gix-trace",
- "gix-utils",
- "gix-worktree",
- "insta",
- "pretty_assertions",
-]
-
-[[package]]
-name = "gix-discover"
-version = "0.56.0"
-dependencies = [
- "bstr",
- "defer",
- "dunce",
- "gix-error",
- "gix-fs",
- "gix-path",
- "gix-ref",
- "gix-sec",
- "gix-testtools",
- "insta",
- "is_ci",
- "serial_test",
- "tempfile",
-]
-
-[[package]]
-name = "gix-error"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "bstr",
- "document-features",
- "gix-error",
- "gix-testtools",
- "insta",
-]
-
-[[package]]
-name = "gix-features"
-version = "0.50.0"
-dependencies = [
- "bytes",
- "bytesize",
- "crc32fast",
- "crossbeam-channel",
- "document-features",
- "gix-path",
- "gix-testtools",
- "gix-trace",
- "gix-utils",
- "insta",
- "libc",
- "once_cell",
- "parking_lot",
- "prodash",
- "walkdir",
-]
-
-[[package]]
-name = "gix-fetchhead"
-version = "0.0.0"
-
-[[package]]
-name = "gix-filter"
-version = "0.35.0"
-dependencies = [
- "bstr",
- "encoding_rs",
- "gix-attributes",
- "gix-command",
- "gix-error",
- "gix-filter",
- "gix-hash",
- "gix-object",
- "gix-packetline",
- "gix-path",
- "gix-quote",
- "gix-testtools",
- "gix-trace",
- "gix-utils",
- "gix-worktree",
- "insta",
- "smallvec",
-]
-
-[[package]]
-name = "gix-fs"
-version = "0.23.0"
-dependencies = [
- "bstr",
- "crossbeam-channel",
- "gix-error",
- "gix-features",
- "gix-path",
- "gix-testtools",
- "gix-utils",
- "insta",
- "is_ci",
- "serde",
- "tempfile",
-]
-
-[[package]]
-name = "gix-fsck"
-version = "0.26.0"
-dependencies = [
- "gix-error",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-testtools",
-]
-
-[[package]]
-name = "gix-glob"
-version = "0.28.0"
-dependencies = [
- "bitflags 2.13.0",
- "bstr",
- "criterion",
- "document-features",
- "gix-features",
- "gix-path",
- "gix-testtools",
- "gix-utils",
- "serde",
-]
-
-[[package]]
-name = "gix-hash"
-version = "0.27.0"
-dependencies = [
- "bstr",
- "document-features",
- "faster-hex",
- "gix-error",
- "gix-features",
- "gix-hash",
- "gix-testtools",
- "insta",
- "serde",
- "sha1dc",
- "sha2",
-]
-
-[[package]]
-name = "gix-hashtable"
-version = "0.17.0"
-dependencies = [
- "gix-hash",
- "hashbrown 0.17.1",
- "parking_lot",
-]
-
-[[package]]
-name = "gix-ignore"
-version = "0.23.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-fs",
- "gix-glob",
- "gix-path",
- "gix-testtools",
- "gix-trace",
- "serde",
- "unicode-bom",
-]
-
-[[package]]
-name = "gix-imara-diff"
-version = "0.3.0"
-dependencies = [
- "arbitrary",
- "bstr",
- "cov-mark",
- "expect-test",
- "gix-hash",
- "gix-imara-diff",
- "gix-object",
- "hashbrown 0.16.1",
-]
-
-[[package]]
-name = "gix-index"
-version = "0.56.0"
-dependencies = [
- "bitflags 2.13.0",
- "bstr",
- "criterion",
- "document-features",
- "filetime",
- "fnv",
- "gix-bitmap",
- "gix-error",
- "gix-features",
- "gix-fs",
- "gix-hash",
- "gix-hashtable",
- "gix-lock",
- "gix-object",
- "gix-odb",
- "gix-testtools",
- "gix-traverse",
- "gix-utils",
- "gix-validate",
- "hashbrown 0.17.1",
- "insta",
- "itoa",
- "libc",
- "memmap2",
- "rustix",
- "serde",
- "smallvec",
-]
-
-[[package]]
-name = "gix-lfs"
-version = "0.0.0"
-
-[[package]]
-name = "gix-lock"
-version = "25.0.0"
-dependencies = [
- "gix-error",
- "gix-tempfile",
- "gix-testtools",
- "gix-utils",
- "insta",
- "tempfile",
-]
-
-[[package]]
-name = "gix-macros"
-version = "0.2.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
- "trybuild",
-]
-
-[[package]]
-name = "gix-mailmap"
-version = "0.35.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-actor",
- "gix-date",
- "gix-error",
- "gix-testtools",
- "insta",
- "serde",
-]
-
-[[package]]
-name = "gix-merge"
-version = "0.21.0"
-dependencies = [
- "arbitrary",
- "bstr",
- "criterion",
- "document-features",
- "gix-command",
- "gix-diff",
- "gix-error",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-imara-diff",
- "gix-index",
- "gix-merge",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-quote",
- "gix-revision",
- "gix-revwalk",
- "gix-tempfile",
- "gix-testtools",
- "gix-trace",
- "gix-utils",
- "gix-worktree",
- "insta",
- "nonempty",
- "pretty_assertions",
- "serde",
- "termtree",
-]
-
-[[package]]
-name = "gix-negotiate"
-version = "0.36.0"
-dependencies = [
- "bitflags 2.13.0",
- "gix-commitgraph",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-object",
- "gix-odb",
- "gix-ref",
- "gix-revwalk",
- "gix-testtools",
-]
-
-[[package]]
-name = "gix-note"
-version = "0.2.0"
-dependencies = [
- "criterion",
- "gix-error",
- "gix-hash",
- "gix-note",
- "gix-object",
- "gix-odb",
- "gix-testtools",
- "insta",
-]
-
-[[package]]
-name = "gix-object"
-version = "0.65.0"
-dependencies = [
- "bstr",
- "criterion",
- "document-features",
- "gix-actor",
- "gix-command",
- "gix-date",
- "gix-error",
- "gix-features",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-tempfile",
- "gix-testtools",
- "gix-utils",
- "gix-validate",
- "insta",
- "itoa",
- "pretty_assertions",
- "serde",
- "smallvec",
- "termtree",
-]
-
-[[package]]
-name = "gix-odb"
-version = "0.85.0"
-dependencies = [
- "arc-swap",
- "crossbeam-channel",
- "document-features",
- "filetime",
- "gix-actor",
- "gix-date",
- "gix-error",
- "gix-features",
- "gix-fs",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-pack",
- "gix-path",
- "gix-quote",
- "gix-testtools",
- "gix-zlib",
- "insta",
- "maplit",
- "memmap2",
- "parking_lot",
- "pretty_assertions",
- "serde",
- "tempfile",
-]
-
-[[package]]
-name = "gix-pack"
-version = "0.75.0"
-dependencies = [
- "bstr",
- "clru",
- "criterion",
- "crossbeam-deque",
- "document-features",
- "gix-chunk",
- "gix-diff",
- "gix-error",
- "gix-features",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-pack",
- "gix-path",
- "gix-tempfile",
- "gix-testtools",
- "gix-traverse",
- "gix-zlib",
- "insta",
- "maplit",
- "memmap2",
- "parking_lot",
- "serde",
- "smallvec",
- "uluru",
-]
-
-[[package]]
-name = "gix-packetline"
-version = "0.23.0"
-dependencies = [
- "async-std",
- "bstr",
- "document-features",
- "faster-hex",
- "futures-io",
- "futures-lite",
- "gix-error",
- "gix-hash",
- "gix-macros",
- "gix-odb",
- "gix-pack",
- "gix-testtools",
- "gix-trace",
- "insta",
- "pin-project-lite",
- "serde",
-]
-
-[[package]]
-name = "gix-path"
-version = "0.13.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-testtools",
- "gix-trace",
- "gix-validate",
- "insta",
- "serial_test",
- "tempfile",
- "windows 0.62.2",
- "winreg",
-]
-
-[[package]]
-name = "gix-pathspec"
-version = "0.21.0"
-dependencies = [
- "bitflags 2.13.0",
- "bstr",
- "gix-attributes",
- "gix-config-value",
- "gix-error",
- "gix-glob",
- "gix-path",
- "gix-testtools",
- "insta",
- "serial_test",
-]
-
-[[package]]
-name = "gix-prompt"
-version = "0.18.0"
-dependencies = [
- "expectrl",
- "gix-command",
- "gix-config-value",
- "gix-error",
- "gix-testtools",
- "insta",
- "parking_lot",
- "rustix",
- "serial_test",
-]
-
-[[package]]
-name = "gix-protocol"
-version = "0.66.0"
-dependencies = [
- "async-std",
- "async-trait",
- "bstr",
- "document-features",
- "futures-io",
- "futures-lite",
- "gix-credentials",
- "gix-date",
- "gix-error",
- "gix-features",
- "gix-hash",
- "gix-lock",
- "gix-macros",
- "gix-negotiate",
- "gix-object",
- "gix-packetline",
- "gix-protocol",
- "gix-ref",
- "gix-refspec",
- "gix-revwalk",
- "gix-shallow",
- "gix-testtools",
- "gix-trace",
- "gix-transport",
- "gix-utils",
- "insta",
- "nonempty",
- "serde",
-]
-
-[[package]]
-name = "gix-quote"
-version = "0.9.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-utils",
-]
-
-[[package]]
-name = "gix-rebase"
-version = "0.0.0"
-
-[[package]]
-name = "gix-ref"
-version = "0.68.0"
-dependencies = [
- "document-features",
- "gix-actor",
- "gix-date",
- "gix-discover",
- "gix-error",
- "gix-features",
- "gix-fs",
- "gix-hash",
- "gix-lock",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-tempfile",
- "gix-testtools",
- "gix-utils",
- "gix-validate",
- "insta",
- "libc",
- "memmap2",
- "serde",
-]
-
-[[package]]
-name = "gix-refspec"
-version = "0.46.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-hash",
- "gix-testtools",
- "gix-validate",
- "insta",
- "smallvec",
-]
-
-[[package]]
-name = "gix-revision"
-version = "0.50.0"
-dependencies = [
- "bitflags 2.13.0",
- "bstr",
- "document-features",
- "gix-commitgraph",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-revwalk",
- "gix-testtools",
- "gix-trace",
- "insta",
- "nonempty",
- "permutohedron",
- "serde",
-]
-
-[[package]]
-name = "gix-revwalk"
-version = "0.36.0"
-dependencies = [
- "gix-commitgraph",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-testtools",
- "smallvec",
-]
-
-[[package]]
-name = "gix-sec"
-version = "0.15.0"
-dependencies = [
- "bitflags 2.13.0",
- "document-features",
- "gix-path",
- "libc",
- "serde",
- "tempfile",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "gix-sequencer"
-version = "0.0.0"
-
-[[package]]
-name = "gix-shallow"
-version = "0.14.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-hash",
- "gix-lock",
- "nonempty",
- "serde",
- "tempfile",
-]
-
-[[package]]
-name = "gix-status"
-version = "0.35.0"
-dependencies = [
- "bstr",
- "document-features",
- "filetime",
- "gix-diff",
- "gix-dir",
- "gix-error",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-pathspec",
- "gix-status",
- "gix-testtools",
- "gix-worktree",
- "hashbrown 0.16.1",
- "insta",
- "portable-atomic",
- "pretty_assertions",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "gix-submodule"
-version = "0.35.0"
-dependencies = [
- "bstr",
- "gix-config",
- "gix-error",
- "gix-features",
- "gix-path",
- "gix-pathspec",
- "gix-refspec",
- "gix-testtools",
- "gix-url",
- "insta",
-]
-
-[[package]]
-name = "gix-tempfile"
-version = "25.0.0"
-dependencies = [
- "dashmap",
- "document-features",
- "gix-fs",
- "gix-testtools",
- "insta",
- "libc",
- "parking_lot",
- "signal-hook 0.4.4",
- "signal-hook-registry",
- "tempfile",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "gix-testtools"
-version = "0.21.0"
-dependencies = [
- "bstr",
- "crc",
- "document-features",
- "fastrand",
- "fs_extra",
- "gix-config",
- "gix-discover",
- "gix-error",
- "gix-hash",
- "gix-index",
- "gix-lock",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-ref",
- "gix-shallow",
- "gix-tempfile",
- "gix-testtools",
- "gix-worktree",
- "insta",
- "io-close",
- "is_ci",
- "parking_lot",
- "serde_json",
- "serial_test",
- "tar",
- "tempfile",
- "xz2",
-]
-
-[[package]]
-name = "gix-tix"
-version = "0.4.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm",
- "directories",
- "gix",
- "gix-testtools",
- "insta",
- "notify",
- "ratatui",
- "terminal-colorsaurus",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "tui-markdown",
-]
-
-[[package]]
-name = "gix-trace"
-version = "0.2.0"
-dependencies = [
- "document-features",
- "tracing",
-]
-
-[[package]]
-name = "gix-transport"
-version = "0.60.0"
-dependencies = [
- "async-std",
- "async-trait",
- "base64",
- "blocking",
- "bstr",
- "curl",
- "document-features",
- "futures-io",
- "futures-lite",
- "gix-command",
- "gix-credentials",
- "gix-error",
- "gix-features",
- "gix-hash",
- "gix-macros",
- "gix-pack",
- "gix-packetline",
- "gix-path",
- "gix-quote",
- "gix-sec",
- "gix-testtools",
- "gix-transport",
- "gix-url",
- "insta",
- "parking_lot",
- "pin-project-lite",
- "reqwest",
- "serde",
-]
-
-[[package]]
-name = "gix-traverse"
-version = "0.62.0"
-dependencies = [
- "bitflags 2.13.0",
- "gix-commitgraph",
- "gix-date",
- "gix-error",
- "gix-hash",
- "gix-hashtable",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-revwalk",
- "gix-testtools",
- "gix-traverse",
- "insta",
- "smallvec",
-]
-
-[[package]]
-name = "gix-tui"
-version = "0.0.0"
-
-[[package]]
-name = "gix-url"
-version = "0.39.0"
-dependencies = [
- "assert_matches",
- "bstr",
- "document-features",
- "gix-error",
- "gix-path",
- "gix-testtools",
- "gix-utils",
- "insta",
- "percent-encoding",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "gix-utils"
-version = "0.4.0"
-dependencies = [
- "bstr",
- "fastrand",
- "getrandom 0.4.3",
- "gix-utils",
- "unicode-normalization",
-]
-
-[[package]]
-name = "gix-validate"
-version = "0.12.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-testtools",
- "insta",
-]
-
-[[package]]
-name = "gix-worktree"
-version = "0.57.0"
-dependencies = [
- "bstr",
- "document-features",
- "gix-attributes",
- "gix-discover",
- "gix-error",
- "gix-features",
- "gix-fs",
- "gix-glob",
- "gix-hash",
- "gix-ignore",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-testtools",
- "gix-validate",
- "insta",
- "serde",
-]
-
-[[package]]
-name = "gix-worktree-state"
-version = "0.35.0"
-dependencies = [
- "bstr",
- "gix-error",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-index",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-testtools",
- "gix-worktree",
- "gix-worktree-state",
- "insta",
- "io-close",
- "walkdir",
-]
-
-[[package]]
-name = "gix-worktree-stream"
-version = "0.37.0"
-dependencies = [
- "gix-attributes",
- "gix-error",
- "gix-features",
- "gix-filter",
- "gix-fs",
- "gix-hash",
- "gix-object",
- "gix-odb",
- "gix-path",
- "gix-testtools",
- "gix-traverse",
- "gix-worktree",
- "gix-worktree-stream",
- "insta",
- "parking_lot",
-]
-
-[[package]]
-name = "gix-zlib"
-version = "0.2.0"
-dependencies = [
- "bstr",
- "gix-error",
- "insta",
- "serde",
- "zlib-rs",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3290,8 +1965,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "gix",
- "gix-testtools",
+ "legix",
+ "legix-testtools",
  "regex",
 ]
 
@@ -3590,6 +2265,1331 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+
+[[package]]
+name = "legix"
+version = "0.88.0"
+dependencies = [
+ "anyhow",
+ "async-std",
+ "document-features",
+ "insta",
+ "is_ci",
+ "legix",
+ "legix-actor",
+ "legix-archive",
+ "legix-attributes",
+ "legix-blame",
+ "legix-command",
+ "legix-commitgraph",
+ "legix-config",
+ "legix-credentials",
+ "legix-date",
+ "legix-diff",
+ "legix-dir",
+ "legix-discover",
+ "legix-error",
+ "legix-features",
+ "legix-filter",
+ "legix-fs",
+ "legix-glob",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-ignore",
+ "legix-index",
+ "legix-lock",
+ "legix-mailmap",
+ "legix-merge",
+ "legix-negotiate",
+ "legix-note",
+ "legix-object",
+ "legix-odb",
+ "legix-pack",
+ "legix-path",
+ "legix-pathspec",
+ "legix-prompt",
+ "legix-protocol",
+ "legix-quote",
+ "legix-ref",
+ "legix-refspec",
+ "legix-revision",
+ "legix-revwalk",
+ "legix-sec",
+ "legix-shallow",
+ "legix-status",
+ "legix-submodule",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-trace",
+ "legix-transport",
+ "legix-traverse",
+ "legix-url",
+ "legix-utils",
+ "legix-validate",
+ "legix-worktree",
+ "legix-worktree-state",
+ "legix-worktree-stream",
+ "legix-zlib",
+ "nonempty",
+ "parking_lot",
+ "pretty_assertions",
+ "prodash",
+ "regex",
+ "serde",
+ "serial_test",
+ "signal-hook 0.4.4",
+ "smallvec",
+ "termtree",
+]
+
+[[package]]
+name = "legix-actor"
+version = "0.43.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-testtools",
+ "pretty_assertions",
+ "serde",
+]
+
+[[package]]
+name = "legix-archive"
+version = "0.37.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "flate2",
+ "legix-attributes",
+ "legix-date",
+ "legix-error",
+ "legix-filter",
+ "legix-hash",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-testtools",
+ "legix-worktree",
+ "legix-worktree-stream",
+ "rawzip",
+ "tar",
+]
+
+[[package]]
+name = "legix-attributes"
+version = "0.36.0"
+dependencies = [
+ "bstr",
+ "criterion",
+ "document-features",
+ "insta",
+ "legix-error",
+ "legix-features",
+ "legix-fs",
+ "legix-glob",
+ "legix-path",
+ "legix-quote",
+ "legix-testtools",
+ "legix-trace",
+ "serde",
+ "smallvec",
+ "unicode-bom",
+]
+
+[[package]]
+name = "legix-bitmap"
+version = "0.5.0"
+dependencies = [
+ "legix-error",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-blame"
+version = "0.18.0"
+dependencies = [
+ "insta",
+ "legix-commitgraph",
+ "legix-date",
+ "legix-diff",
+ "legix-error",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-index",
+ "legix-object",
+ "legix-odb",
+ "legix-ref",
+ "legix-revwalk",
+ "legix-testtools",
+ "legix-trace",
+ "legix-traverse",
+ "legix-worktree",
+ "pretty_assertions",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-chunk"
+version = "0.9.0"
+dependencies = [
+ "legix-error",
+]
+
+[[package]]
+name = "legix-cli"
+version = "0.59.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "crosstermion",
+ "document-features",
+ "env_logger",
+ "futures-lite",
+ "is-terminal",
+ "legix",
+ "legix-core",
+ "legix-features",
+ "legix-tix",
+ "prodash",
+ "serde_derive",
+ "terminal_size",
+ "tracing",
+ "tracing-forest 0.1.6",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "legix-command"
+version = "0.11.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-error",
+ "legix-path",
+ "legix-quote",
+ "legix-testtools",
+ "legix-trace",
+]
+
+[[package]]
+name = "legix-commitgraph"
+version = "0.40.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-chunk",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-testtools",
+ "memmap2",
+ "nonempty",
+ "serde",
+]
+
+[[package]]
+name = "legix-config"
+version = "0.61.0"
+dependencies = [
+ "bstr",
+ "bytesize",
+ "cap",
+ "criterion",
+ "document-features",
+ "insta",
+ "legix-config",
+ "legix-config-value",
+ "legix-error",
+ "legix-features",
+ "legix-glob",
+ "legix-path",
+ "legix-ref",
+ "legix-sec",
+ "legix-testtools",
+ "legix-utils",
+ "serde",
+ "serial_test",
+ "smallvec",
+ "unicode-bom",
+]
+
+[[package]]
+name = "legix-config-value"
+version = "0.20.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-error",
+ "legix-path",
+ "legix-testtools",
+ "libc",
+ "serde",
+]
+
+[[package]]
+name = "legix-core"
+version = "0.62.0"
+dependencies = [
+ "anyhow",
+ "async-io",
+ "async-net",
+ "async-trait",
+ "blocking",
+ "bytesize",
+ "crossbeam-channel",
+ "document-features",
+ "dua-core",
+ "fs-err",
+ "futures-io",
+ "futures-lite",
+ "layout-rs",
+ "legix",
+ "legix-archive",
+ "legix-error",
+ "legix-fsck",
+ "legix-pack",
+ "legix-status",
+ "legix-transport",
+ "legix-url",
+ "open",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sysinfo",
+ "tempfile",
+ "tracing",
+ "tracing-forest 0.2.0",
+ "tracing-subscriber",
+ "unicode-width",
+]
+
+[[package]]
+name = "legix-credentials"
+version = "0.41.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-command",
+ "legix-config-value",
+ "legix-date",
+ "legix-error",
+ "legix-path",
+ "legix-prompt",
+ "legix-quote",
+ "legix-sec",
+ "legix-testtools",
+ "legix-trace",
+ "legix-url",
+ "serde",
+]
+
+[[package]]
+name = "legix-date"
+version = "0.17.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "itoa",
+ "jiff",
+ "legix-error",
+ "legix-hash",
+ "legix-testtools",
+ "pretty_assertions",
+ "serde",
+]
+
+[[package]]
+name = "legix-diff"
+version = "0.68.0"
+dependencies = [
+ "bstr",
+ "criterion",
+ "document-features",
+ "getrandom 0.4.3",
+ "insta",
+ "legix-attributes",
+ "legix-command",
+ "legix-error",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-imara-diff",
+ "legix-index",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-pathspec",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-trace",
+ "legix-traverse",
+ "legix-worktree",
+ "pretty_assertions",
+ "serde",
+]
+
+[[package]]
+name = "legix-dir"
+version = "0.30.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-dir",
+ "legix-discover",
+ "legix-error",
+ "legix-fs",
+ "legix-ignore",
+ "legix-index",
+ "legix-object",
+ "legix-path",
+ "legix-pathspec",
+ "legix-testtools",
+ "legix-trace",
+ "legix-utils",
+ "legix-worktree",
+ "pretty_assertions",
+]
+
+[[package]]
+name = "legix-discover"
+version = "0.56.0"
+dependencies = [
+ "bstr",
+ "defer",
+ "dunce",
+ "insta",
+ "is_ci",
+ "legix-error",
+ "legix-fs",
+ "legix-path",
+ "legix-ref",
+ "legix-sec",
+ "legix-testtools",
+ "serial_test",
+ "tempfile",
+]
+
+[[package]]
+name = "legix-error"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-error",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-features"
+version = "0.50.0"
+dependencies = [
+ "bytes",
+ "bytesize",
+ "crc32fast",
+ "crossbeam-channel",
+ "document-features",
+ "insta",
+ "legix-path",
+ "legix-testtools",
+ "legix-trace",
+ "legix-utils",
+ "libc",
+ "once_cell",
+ "parking_lot",
+ "prodash",
+ "walkdir",
+]
+
+[[package]]
+name = "legix-fetchhead"
+version = "0.0.0"
+
+[[package]]
+name = "legix-filter"
+version = "0.35.0"
+dependencies = [
+ "bstr",
+ "encoding_rs",
+ "insta",
+ "legix-attributes",
+ "legix-command",
+ "legix-error",
+ "legix-filter",
+ "legix-hash",
+ "legix-object",
+ "legix-packetline",
+ "legix-path",
+ "legix-quote",
+ "legix-testtools",
+ "legix-trace",
+ "legix-utils",
+ "legix-worktree",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-fs"
+version = "0.23.0"
+dependencies = [
+ "bstr",
+ "crossbeam-channel",
+ "insta",
+ "is_ci",
+ "legix-error",
+ "legix-features",
+ "legix-path",
+ "legix-testtools",
+ "legix-utils",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "legix-fsck"
+version = "0.26.0"
+dependencies = [
+ "legix-error",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-glob"
+version = "0.28.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bstr",
+ "criterion",
+ "document-features",
+ "legix-features",
+ "legix-path",
+ "legix-testtools",
+ "legix-utils",
+ "serde",
+]
+
+[[package]]
+name = "legix-hash"
+version = "0.27.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "faster-hex",
+ "insta",
+ "legix-error",
+ "legix-features",
+ "legix-hash",
+ "legix-testtools",
+ "serde",
+ "sha1dc",
+ "sha2",
+]
+
+[[package]]
+name = "legix-hashtable"
+version = "0.17.0"
+dependencies = [
+ "hashbrown 0.17.1",
+ "legix-hash",
+ "parking_lot",
+]
+
+[[package]]
+name = "legix-ignore"
+version = "0.23.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "legix-fs",
+ "legix-glob",
+ "legix-path",
+ "legix-testtools",
+ "legix-trace",
+ "serde",
+ "unicode-bom",
+]
+
+[[package]]
+name = "legix-imara-diff"
+version = "0.3.0"
+dependencies = [
+ "arbitrary",
+ "bstr",
+ "cov-mark",
+ "expect-test",
+ "hashbrown 0.16.1",
+ "legix-hash",
+ "legix-imara-diff",
+ "legix-object",
+]
+
+[[package]]
+name = "legix-index"
+version = "0.56.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bstr",
+ "criterion",
+ "document-features",
+ "filetime",
+ "fnv",
+ "hashbrown 0.17.1",
+ "insta",
+ "itoa",
+ "legix-bitmap",
+ "legix-error",
+ "legix-features",
+ "legix-fs",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-lock",
+ "legix-object",
+ "legix-odb",
+ "legix-testtools",
+ "legix-traverse",
+ "legix-utils",
+ "legix-validate",
+ "libc",
+ "memmap2",
+ "rustix",
+ "serde",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-lfs"
+version = "0.0.0"
+
+[[package]]
+name = "legix-lock"
+version = "25.0.0"
+dependencies = [
+ "insta",
+ "legix-error",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-utils",
+ "tempfile",
+]
+
+[[package]]
+name = "legix-macros"
+version = "0.2.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+ "trybuild",
+]
+
+[[package]]
+name = "legix-mailmap"
+version = "0.35.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-actor",
+ "legix-date",
+ "legix-error",
+ "legix-testtools",
+ "serde",
+]
+
+[[package]]
+name = "legix-merge"
+version = "0.21.0"
+dependencies = [
+ "arbitrary",
+ "bstr",
+ "criterion",
+ "document-features",
+ "insta",
+ "legix-command",
+ "legix-diff",
+ "legix-error",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-imara-diff",
+ "legix-index",
+ "legix-merge",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-quote",
+ "legix-revision",
+ "legix-revwalk",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-trace",
+ "legix-utils",
+ "legix-worktree",
+ "nonempty",
+ "pretty_assertions",
+ "serde",
+ "termtree",
+]
+
+[[package]]
+name = "legix-negotiate"
+version = "0.36.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "legix-commitgraph",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-object",
+ "legix-odb",
+ "legix-ref",
+ "legix-revwalk",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-note"
+version = "0.2.0"
+dependencies = [
+ "criterion",
+ "insta",
+ "legix-error",
+ "legix-hash",
+ "legix-note",
+ "legix-object",
+ "legix-odb",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-object"
+version = "0.65.0"
+dependencies = [
+ "bstr",
+ "criterion",
+ "document-features",
+ "insta",
+ "itoa",
+ "legix-actor",
+ "legix-command",
+ "legix-date",
+ "legix-error",
+ "legix-features",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-utils",
+ "legix-validate",
+ "pretty_assertions",
+ "serde",
+ "smallvec",
+ "termtree",
+]
+
+[[package]]
+name = "legix-odb"
+version = "0.85.0"
+dependencies = [
+ "arc-swap",
+ "crossbeam-channel",
+ "document-features",
+ "filetime",
+ "insta",
+ "legix-actor",
+ "legix-date",
+ "legix-error",
+ "legix-features",
+ "legix-fs",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-pack",
+ "legix-path",
+ "legix-quote",
+ "legix-testtools",
+ "legix-zlib",
+ "maplit",
+ "memmap2",
+ "parking_lot",
+ "pretty_assertions",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "legix-pack"
+version = "0.75.0"
+dependencies = [
+ "bstr",
+ "clru",
+ "criterion",
+ "crossbeam-deque",
+ "document-features",
+ "insta",
+ "legix-chunk",
+ "legix-diff",
+ "legix-error",
+ "legix-features",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-pack",
+ "legix-path",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-traverse",
+ "legix-zlib",
+ "maplit",
+ "memmap2",
+ "parking_lot",
+ "serde",
+ "smallvec",
+ "uluru",
+]
+
+[[package]]
+name = "legix-packetline"
+version = "0.23.0"
+dependencies = [
+ "async-std",
+ "bstr",
+ "document-features",
+ "faster-hex",
+ "futures-io",
+ "futures-lite",
+ "insta",
+ "legix-error",
+ "legix-hash",
+ "legix-macros",
+ "legix-odb",
+ "legix-pack",
+ "legix-testtools",
+ "legix-trace",
+ "pin-project-lite",
+ "serde",
+]
+
+[[package]]
+name = "legix-path"
+version = "0.13.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-error",
+ "legix-testtools",
+ "legix-trace",
+ "legix-validate",
+ "serial_test",
+ "tempfile",
+ "windows 0.62.2",
+ "winreg",
+]
+
+[[package]]
+name = "legix-pathspec"
+version = "0.21.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bstr",
+ "insta",
+ "legix-attributes",
+ "legix-config-value",
+ "legix-error",
+ "legix-glob",
+ "legix-path",
+ "legix-testtools",
+ "serial_test",
+]
+
+[[package]]
+name = "legix-prompt"
+version = "0.18.0"
+dependencies = [
+ "expectrl",
+ "insta",
+ "legix-command",
+ "legix-config-value",
+ "legix-error",
+ "legix-testtools",
+ "parking_lot",
+ "rustix",
+ "serial_test",
+]
+
+[[package]]
+name = "legix-protocol"
+version = "0.66.0"
+dependencies = [
+ "async-std",
+ "async-trait",
+ "bstr",
+ "document-features",
+ "futures-io",
+ "futures-lite",
+ "insta",
+ "legix-credentials",
+ "legix-date",
+ "legix-error",
+ "legix-features",
+ "legix-hash",
+ "legix-lock",
+ "legix-macros",
+ "legix-negotiate",
+ "legix-object",
+ "legix-packetline",
+ "legix-protocol",
+ "legix-ref",
+ "legix-refspec",
+ "legix-revwalk",
+ "legix-shallow",
+ "legix-testtools",
+ "legix-trace",
+ "legix-transport",
+ "legix-utils",
+ "nonempty",
+ "serde",
+]
+
+[[package]]
+name = "legix-quote"
+version = "0.9.0"
+dependencies = [
+ "bstr",
+ "legix-error",
+ "legix-utils",
+]
+
+[[package]]
+name = "legix-rebase"
+version = "0.0.0"
+
+[[package]]
+name = "legix-ref"
+version = "0.68.0"
+dependencies = [
+ "document-features",
+ "insta",
+ "legix-actor",
+ "legix-date",
+ "legix-discover",
+ "legix-error",
+ "legix-features",
+ "legix-fs",
+ "legix-hash",
+ "legix-lock",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-utils",
+ "legix-validate",
+ "libc",
+ "memmap2",
+ "serde",
+]
+
+[[package]]
+name = "legix-refspec"
+version = "0.46.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-error",
+ "legix-hash",
+ "legix-testtools",
+ "legix-validate",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-revision"
+version = "0.50.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-commitgraph",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-revwalk",
+ "legix-testtools",
+ "legix-trace",
+ "nonempty",
+ "permutohedron",
+ "serde",
+]
+
+[[package]]
+name = "legix-revwalk"
+version = "0.36.0"
+dependencies = [
+ "legix-commitgraph",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-testtools",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-sec"
+version = "0.15.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "document-features",
+ "legix-path",
+ "libc",
+ "serde",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "legix-sequencer"
+version = "0.0.0"
+
+[[package]]
+name = "legix-shallow"
+version = "0.14.0"
+dependencies = [
+ "bstr",
+ "legix-error",
+ "legix-hash",
+ "legix-lock",
+ "nonempty",
+ "serde",
+ "tempfile",
+]
+
+[[package]]
+name = "legix-status"
+version = "0.35.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "filetime",
+ "hashbrown 0.16.1",
+ "insta",
+ "legix-diff",
+ "legix-dir",
+ "legix-error",
+ "legix-features",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-index",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-pathspec",
+ "legix-status",
+ "legix-testtools",
+ "legix-worktree",
+ "portable-atomic",
+ "pretty_assertions",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "legix-submodule"
+version = "0.35.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-config",
+ "legix-error",
+ "legix-features",
+ "legix-path",
+ "legix-pathspec",
+ "legix-refspec",
+ "legix-testtools",
+ "legix-url",
+]
+
+[[package]]
+name = "legix-tempfile"
+version = "25.0.0"
+dependencies = [
+ "dashmap",
+ "document-features",
+ "insta",
+ "legix-fs",
+ "legix-testtools",
+ "libc",
+ "parking_lot",
+ "signal-hook 0.4.4",
+ "signal-hook-registry",
+ "tempfile",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "legix-testtools"
+version = "0.21.0"
+dependencies = [
+ "bstr",
+ "crc",
+ "document-features",
+ "fastrand",
+ "fs_extra",
+ "insta",
+ "io-close",
+ "is_ci",
+ "legix-config",
+ "legix-discover",
+ "legix-error",
+ "legix-hash",
+ "legix-index",
+ "legix-lock",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-ref",
+ "legix-shallow",
+ "legix-tempfile",
+ "legix-testtools",
+ "legix-worktree",
+ "parking_lot",
+ "serde_json",
+ "serial_test",
+ "tar",
+ "tempfile",
+ "xz2",
+]
+
+[[package]]
+name = "legix-tix"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "crossterm",
+ "directories",
+ "insta",
+ "legix",
+ "legix-testtools",
+ "notify",
+ "ratatui",
+ "terminal-colorsaurus",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "tui-markdown",
+]
+
+[[package]]
+name = "legix-trace"
+version = "0.2.0"
+dependencies = [
+ "document-features",
+ "tracing",
+]
+
+[[package]]
+name = "legix-transport"
+version = "0.60.0"
+dependencies = [
+ "async-std",
+ "async-trait",
+ "base64",
+ "blocking",
+ "bstr",
+ "curl",
+ "document-features",
+ "futures-io",
+ "futures-lite",
+ "insta",
+ "legix-command",
+ "legix-credentials",
+ "legix-error",
+ "legix-features",
+ "legix-hash",
+ "legix-macros",
+ "legix-pack",
+ "legix-packetline",
+ "legix-path",
+ "legix-quote",
+ "legix-sec",
+ "legix-testtools",
+ "legix-transport",
+ "legix-url",
+ "parking_lot",
+ "pin-project-lite",
+ "reqwest",
+ "serde",
+]
+
+[[package]]
+name = "legix-traverse"
+version = "0.62.0"
+dependencies = [
+ "bitflags 2.13.0",
+ "insta",
+ "legix-commitgraph",
+ "legix-date",
+ "legix-error",
+ "legix-hash",
+ "legix-hashtable",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-revwalk",
+ "legix-testtools",
+ "legix-traverse",
+ "smallvec",
+]
+
+[[package]]
+name = "legix-tui"
+version = "0.0.0"
+
+[[package]]
+name = "legix-url"
+version = "0.39.0"
+dependencies = [
+ "assert_matches",
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-error",
+ "legix-path",
+ "legix-testtools",
+ "legix-utils",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "legix-utils"
+version = "0.4.0"
+dependencies = [
+ "bstr",
+ "fastrand",
+ "getrandom 0.4.3",
+ "legix-utils",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "legix-validate"
+version = "0.12.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-error",
+ "legix-testtools",
+]
+
+[[package]]
+name = "legix-worktree"
+version = "0.57.0"
+dependencies = [
+ "bstr",
+ "document-features",
+ "insta",
+ "legix-attributes",
+ "legix-discover",
+ "legix-error",
+ "legix-features",
+ "legix-fs",
+ "legix-glob",
+ "legix-hash",
+ "legix-ignore",
+ "legix-index",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-testtools",
+ "legix-validate",
+ "serde",
+]
+
+[[package]]
+name = "legix-worktree-state"
+version = "0.35.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "io-close",
+ "legix-error",
+ "legix-features",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-index",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-testtools",
+ "legix-worktree",
+ "legix-worktree-state",
+ "walkdir",
+]
+
+[[package]]
+name = "legix-worktree-stream"
+version = "0.37.0"
+dependencies = [
+ "insta",
+ "legix-attributes",
+ "legix-error",
+ "legix-features",
+ "legix-filter",
+ "legix-fs",
+ "legix-hash",
+ "legix-object",
+ "legix-odb",
+ "legix-path",
+ "legix-testtools",
+ "legix-traverse",
+ "legix-worktree",
+ "legix-worktree-stream",
+ "parking_lot",
+]
+
+[[package]]
+name = "legix-zlib"
+version = "0.2.0"
+dependencies = [
+ "bstr",
+ "insta",
+ "legix-error",
+ "serde",
+ "zlib-rs",
+]
 
 [[package]]
 name = "libc"

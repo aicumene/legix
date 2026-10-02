@@ -1,0 +1,126 @@
+use std::rc::Rc;
+
+use crate::{Error, Repository, Result, submodule};
+use legix_error::ResultExt;
+
+impl Repository {
+    /// Open the `.gitmodules` file as present in the worktree, or return `None` if no such file is available.
+    /// Symlinked worktree `.gitmodules` files are silently ignored so content outside the repository
+    /// cannot become active submodule configuration by being linked into the worktree.
+    /// Note that git configuration is also contributing to the result based on the current snapshot.
+    ///
+    /// Note that his method will not look in other places, like the index or the `HEAD` tree.
+    // TODO(submodule): make it use an updated snapshot instead once we have `config()`.
+    pub fn open_modules_file(&self) -> Result<Option<legix_submodule::File>> {
+        let path = match self.modules_path() {
+            Some(path) => path,
+            None => return Ok(None),
+        };
+        // TODO(ErrorKind): we want to use `ErrorKind::FilesystemLoop`, which otherwise happens
+        //                  when doing `legix_fs::options_no_follow()`,
+        //                  so we could catch NotFound along with it and save the extra check.
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(Error::from_error(err)),
+        };
+        if metadata.file_type().is_symlink() {
+            return Ok(None);
+        }
+        let buf = std::fs::read(&path).or_raise(|| legix_error::message("Could not read '.gitmodules' file"))?;
+        Ok(Some(legix_submodule::File::from_bytes(
+            &buf,
+            path,
+            &self.config.resolved,
+        )?))
+    }
+
+    /// Return a shared [`.gitmodules` file](submodule::File) which is updated automatically if the in-memory snapshot
+    /// has become stale as the underlying file on disk has changed. The snapshot based on the file on disk is shared across all
+    /// clones of this repository.
+    ///
+    /// If a file on disk isn't present, we will try to load it from the index, and finally from the current tree.
+    /// In the latter two cases, the result will not be cached in this repository instance as we can't detect freshness anymore,
+    /// so time this method is called a new [modules file](submodule::ModulesSnapshot) will be created.
+    ///
+    /// Note that git configuration is also contributing to the result based on the current snapshot.
+    ///
+    // TODO(submodule): make it use an updated snapshot instead once we have `config()`.
+    pub fn modules(&self) -> Result<Option<submodule::ModulesSnapshot>> {
+        match self
+            .modules
+            .recent_snapshot(
+                || {
+                    self.modules_path()
+                        .and_then(|path| path.metadata().and_then(|m| m.modified()).ok())
+                },
+                || self.open_modules_file(),
+            )
+            .or_erased()?
+        {
+            Some(m) => Ok(Some(m)),
+            None => {
+                let id = match self.try_index()?.and_then(|index| {
+                    index
+                        .entry_by_path(submodule::MODULES_FILE.into())
+                        .map(|entry| entry.id)
+                }) {
+                    Some(id) => id,
+                    None => match self
+                        .head()
+                        .or_erased()?
+                        .try_peel_to_id()?
+                        .map(|id| -> Result<Option<_>> {
+                            Ok(id
+                                .object()?
+                                .peel_to_commit()?
+                                .tree()?
+                                .find_entry(submodule::MODULES_FILE)
+                                .map(|entry| entry.inner.oid.to_owned()))
+                        })
+                        .transpose()?
+                        .flatten()
+                    {
+                        Some(id) => id,
+                        None => return Ok(None),
+                    },
+                };
+                Ok(Some(legix_features::threading::OwnShared::new(
+                    legix_submodule::File::from_bytes(
+                        &self
+                            .find_object(id)
+                            .or_raise(|| {
+                                legix_error::message("Could not find the .gitmodules file by id in the object database")
+                            })?
+                            .data,
+                        None,
+                        &self.config.resolved,
+                    )?
+                    .into(),
+                )))
+            }
+        }
+    }
+
+    /// Return the list of available submodules, or `None` if there is no submodule configuration.
+    #[doc(alias = "git2")]
+    pub fn submodules(&self) -> Result<Option<impl Iterator<Item = crate::Submodule<'_>>>> {
+        let modules = match self.modules()? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+        let shared_state = Rc::new(submodule::SharedState::new(self, modules));
+        Ok(Some(
+            shared_state
+                .modules
+                .names()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(move |name| crate::Submodule {
+                    state: shared_state.clone(),
+                    name,
+                }),
+        ))
+    }
+}

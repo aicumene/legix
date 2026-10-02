@@ -1,0 +1,75 @@
+[package]
+name = "legix-merge"
+version = "0.21.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project implementing merge algorithms"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "tree"
+harness = false
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "legix-hash/serde", "legix-object/serde"]
+
+[dependencies]
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-filter = { version = "^0.35.0", path = "../legix-filter" }
+legix-worktree = { version = "^0.57.0", path = "../legix-worktree", default-features = false, features = ["attributes"] }
+legix-command = { version = "^0.11.0", path = "../legix-command" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-tempfile = { version = "^25.0.0", path = "../legix-tempfile" }
+legix-trace = { version = "^0.2.0", path = "../legix-trace" }
+legix-quote = { version = "^0.9.0", path = "../legix-quote" }
+legix-revision = { version = "^0.50.0", path = "../legix-revision", default-features = false, features = ["merge_base"] }
+legix-revwalk = { version = "^0.36.0", path = "../legix-revwalk" }
+legix-diff = { version = "^0.68.0", path = "../legix-diff", default-features = false, features = ["blob"] }
+legix-index = { version = "^0.56.0", path = "../legix-index" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+imara-diff = { package = "legix-imara-diff", version = "^0.3.0", path = "../legix-imara-diff" }
+
+bstr = { version = "1.12.0", default-features = false }
+nonempty = "0.12.0"
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+insta = "1.46.3"
+criterion = "0.8.2"
+legix-merge = { path = ".", features = ["sha1", "sha256"] }
+legix-testtools = { path = "../tests/tools", features = ["sha1", "sha256"] }
+legix-odb = { path = "../legix-odb" }
+legix-utils = { path = "../legix-utils" }
+termtree = "1.0.0"
+pretty_assertions = "1.4.0"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "document-features"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Doc-only macro dependency used under `all(doc, feature = "document-features")`.
+    "document-features",
+    # Optional `serde` feature is retained for downstream API compatibility.
+    "serde",
+]

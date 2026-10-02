@@ -2,12 +2,12 @@ mod snapshot {
     use std::io::Write;
 
     use bstr::ByteSlice;
-    use gix_testtools::repository::{Head, WorktreeEntryKind};
+    use legix_testtools::repository::{Head, WorktreeEntryKind};
 
     #[test]
-    fn captures_refs_commits_index_tree_and_exact_worktree() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
-        let state = gix_testtools::repository::snapshot(fixture.path())?;
+    fn captures_refs_commits_index_tree_and_exact_worktree() -> legix_testtools::Result {
+        let fixture = legix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
+        let state = legix_testtools::repository::snapshot(fixture.path())?;
 
         assert!(
             matches!(state.head, Head::Symbolic { .. }),
@@ -54,13 +54,13 @@ mod snapshot {
             "nested worktree contents are captured"
         );
 
-        let again = gix_testtools::repository::snapshot(fixture.path())?;
+        let again = legix_testtools::repository::snapshot(fixture.path())?;
         assert_eq!(state, again, "taking a snapshot has no observable side effects");
 
         std::fs::write(fixture.path().join("conflicted"), b"conflict theirs\n")?;
-        gix_testtools::git(fixture.path(), "add conflicted")?;
+        legix_testtools::git(fixture.path(), "add conflicted")?;
         assert!(
-            gix_testtools::repository::snapshot(fixture.path())?
+            legix_testtools::repository::snapshot(fixture.path())?
                 .index_tree
                 .is_some(),
             "a resolved index has a computed tree"
@@ -69,8 +69,8 @@ mod snapshot {
     }
 
     #[test]
-    fn local_config_paths_are_normalized_and_portable_values_are_stabilized() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
+    fn local_config_paths_are_normalized_and_portable_values_are_stabilized() -> legix_testtools::Result {
+        let fixture = legix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         let config_path = fixture.path().join(".git/config");
         let included_config = fixture.path().join(".git/included-config");
         let sibling_source = fixture
@@ -82,9 +82,9 @@ mod snapshot {
         std::fs::write(&included_config, b"[included]\n\tvalue = true\n")?;
         let mut config = std::fs::OpenOptions::new().append(true).open(&config_path)?;
         let outside_repository_for_config =
-            gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&outside_repository));
-        let sibling_source_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&sibling_source));
-        let included_config_for_config = gix_path::to_unix_separators_on_windows(gix_path::into_bstr(&included_config));
+            legix_path::to_unix_separators_on_windows(legix_path::into_bstr(&outside_repository));
+        let sibling_source_for_config = legix_path::to_unix_separators_on_windows(legix_path::into_bstr(&sibling_source));
+        let included_config_for_config = legix_path::to_unix_separators_on_windows(legix_path::into_bstr(&included_config));
         write!(
             config,
             "\n# retained comment\n[snapshot]\n\tstable = keep\n\
@@ -96,7 +96,7 @@ mod snapshot {
         drop(config);
         let config_on_disk = std::fs::read(&config_path)?;
 
-        let state = gix_testtools::repository::snapshot(fixture.path())?;
+        let state = legix_testtools::repository::snapshot(fixture.path())?;
         let config = state.config.as_bstr();
         assert!(
             config.contains_str("path = <normalized>/included-config"),
@@ -122,7 +122,7 @@ mod snapshot {
             );
         }
 
-        let portable = gix_testtools::repository::snapshot_portable(fixture.path())?;
+        let portable = legix_testtools::repository::snapshot_portable(fixture.path())?;
         let config = portable.config.as_bstr();
         assert!(config.contains_str("# retained comment"), "comments are retained");
         assert!(
@@ -161,14 +161,14 @@ mod snapshot {
     }
 
     #[test]
-    fn portable_snapshots_alias_annotated_tags() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
-        gix_testtools::git(fixture.path(), "tag -a annotated -m annotated")?;
-        let tag_id = gix_testtools::git(fixture.path(), "rev-parse refs/tags/annotated")?
+    fn portable_snapshots_alias_annotated_tags() -> legix_testtools::Result {
+        let fixture = legix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
+        legix_testtools::git(fixture.path(), "tag -a annotated -m annotated")?;
+        let tag_id = legix_testtools::git(fixture.path(), "rev-parse refs/tags/annotated")?
             .trim()
             .to_owned();
 
-        let snapshot = gix_testtools::repository::snapshot(fixture.path())?.to_string();
+        let snapshot = legix_testtools::repository::snapshot(fixture.path())?.to_string();
         assert!(
             snapshot.contains("refs/tags/annotated = O0"),
             "otherwise uncategorized ref targets receive a stable alias"
@@ -178,7 +178,7 @@ mod snapshot {
             "ordinary snapshots retain the aliased object's ID"
         );
 
-        let portable = gix_testtools::repository::snapshot_portable(fixture.path())?.to_string();
+        let portable = legix_testtools::repository::snapshot_portable(fixture.path())?.to_string();
         assert!(
             portable.contains("refs/tags/annotated = O0"),
             "portable snapshots retain the annotated tag through its alias"
@@ -191,15 +191,15 @@ mod snapshot {
     }
 
     #[test]
-    fn broken_references_are_ignored() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
+    fn broken_references_are_ignored() -> legix_testtools::Result {
+        let fixture = legix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         let refs_dir = fixture.path().join(".git/refs");
         std::fs::write(refs_dir.join("broken"), b"notahexsha\n")?;
         std::fs::write(refs_dir.join("broken-symbolic"), b"ref: refs/broken\n")?;
         std::fs::write(refs_dir.join("broken-cycle-a"), b"ref: refs/broken-cycle-b\n")?;
         std::fs::write(refs_dir.join("broken-cycle-b"), b"ref: refs/broken-cycle-a\n")?;
 
-        let state = gix_testtools::repository::snapshot(fixture.path())?;
+        let state = legix_testtools::repository::snapshot(fixture.path())?;
         assert!(
             state
                 .references
@@ -211,26 +211,26 @@ mod snapshot {
     }
 
     #[test]
-    fn repository_variants_are_captured_portably() -> gix_testtools::Result {
+    fn repository_variants_are_captured_portably() -> legix_testtools::Result {
         // Sparse indexes were introduced in Git 2.34 and are one of the repository forms created by this fixture.
-        let Some(fixture) = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
+        let Some(fixture) = legix_testtools::scripted_fixture_writable_with_args_with_git_version(
             "make_repository_variants.sh",
             None::<String>,
-            gix_testtools::Creation::Execute,
+            legix_testtools::Creation::Execute,
             |version| version >= (2, 34, 0),
         )?
         else {
             return Ok(());
         };
-        let main = gix_testtools::repository::snapshot_portable(fixture.path().join("main"))?;
-        let linked = gix_testtools::repository::snapshot_portable(fixture.path().join("linked"))?;
-        let bare = gix_testtools::repository::snapshot_portable(fixture.path().join("bare.git"))?;
-        let unborn = gix_testtools::repository::snapshot_portable(fixture.path().join("unborn"))?;
+        let main = legix_testtools::repository::snapshot_portable(fixture.path().join("main"))?;
+        let linked = legix_testtools::repository::snapshot_portable(fixture.path().join("linked"))?;
+        let bare = legix_testtools::repository::snapshot_portable(fixture.path().join("bare.git"))?;
+        let unborn = legix_testtools::repository::snapshot_portable(fixture.path().join("unborn"))?;
 
-        let shallow = gix_testtools::repository::snapshot_portable(fixture.path().join("shallow"))?;
+        let shallow = legix_testtools::repository::snapshot_portable(fixture.path().join("shallow"))?;
         assert_eq!(shallow.commits.len(), 1, "history stops at the shallow boundary");
 
-        let split = gix_testtools::repository::snapshot_portable(fixture.path().join("split.git"))?;
+        let split = legix_testtools::repository::snapshot_portable(fixture.path().join("split.git"))?;
         assert!(
             split
                 .worktree
@@ -239,7 +239,7 @@ mod snapshot {
             "core.worktree is resolved relative to the Git directory"
         );
 
-        let configured = gix_testtools::repository::snapshot_portable(fixture.path().join("configured-original"))?;
+        let configured = legix_testtools::repository::snapshot_portable(fixture.path().join("configured-original"))?;
         assert!(
             configured
                 .worktree
@@ -247,13 +247,13 @@ mod snapshot {
                 .any(|entry| entry.path == std::path::Path::new("configured-only")),
             "core.worktree overrides a worktree inferred during discovery"
         );
-        let configured_bare = gix_testtools::repository::snapshot_portable(fixture.path().join("configured-bare"))?;
+        let configured_bare = legix_testtools::repository::snapshot_portable(fixture.path().join("configured-bare"))?;
         assert!(
             configured_bare.worktree.is_empty(),
             "core.bare overrides a worktree inferred during discovery"
         );
 
-        let sparse = gix_testtools::repository::snapshot_portable(fixture.path().join("sparse"))?;
+        let sparse = legix_testtools::repository::snapshot_portable(fixture.path().join("sparse"))?;
         assert!(
             sparse.index.iter().any(|entry| entry.path == "hidden/deep/tracked"),
             "sparse directory entries are expanded to the paths represented by Git"
@@ -263,7 +263,7 @@ mod snapshot {
             "the rendered index contains no sparse-directory placeholders"
         );
 
-        let replaced = gix_testtools::repository::snapshot_portable(fixture.path().join("replaced"))?;
+        let replaced = legix_testtools::repository::snapshot_portable(fixture.path().join("replaced"))?;
         let head_id = match replaced.head {
             Head::Symbolic { id, .. } | Head::Detached(id) => id,
             Head::Unborn(_) => return Err("the replacement-ref fixture unexpectedly has an unborn HEAD".into()),
@@ -426,14 +426,14 @@ mod snapshot {
     }
 
     #[test]
-    fn state_is_a_stable_visual_snapshot() -> gix_testtools::Result {
-        let fixture = gix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
+    fn state_is_a_stable_visual_snapshot() -> legix_testtools::Result {
+        let fixture = legix_testtools::scripted_fixture_writable("make_repository_state.sh")?;
         #[cfg(unix)]
         {
-            let snapshot_name = format!("state_is_a_stable_visual_snapshot_{}", gix_testtools::object_hash());
-            insta::assert_snapshot!(snapshot_name, gix_testtools::repository::snapshot(fixture.path())?);
+            let snapshot_name = format!("state_is_a_stable_visual_snapshot_{}", legix_testtools::object_hash());
+            insta::assert_snapshot!(snapshot_name, legix_testtools::repository::snapshot(fixture.path())?);
         }
-        insta::assert_snapshot!(gix_testtools::repository::snapshot_portable(fixture.path())?, @r#"
+        insta::assert_snapshot!(legix_testtools::repository::snapshot_portable(fixture.path())?, @r#"
         HEAD refs/heads/main -> C0
 
         [config]

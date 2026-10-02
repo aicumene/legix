@@ -5,7 +5,7 @@
 #   root="$(readlink -f -- "$1")"
 #   output_corpus="$2"
 #   source "$root/etc/fuzz-corpus-builder.sh"
-#   build_fuzz_corpus "$root" "$output_corpus" "gix-pack" "index_file"
+#   build_fuzz_corpus "$root" "$output_corpus" "legix-pack" "index_file"
 #
 # The target-specific script is invoked by Google OSS Fuzz and
 # their build script at https://github.com/google/oss-fuzz/blob/master/projects/gitoxide/build.sh

@@ -73,13 +73,13 @@ for d in github.com/archlinux/svntogit-community.git github.com/NagatoDEV/PlaySt
 done
 ```
 
-### Run on-off `gix` commands by hand
+### Run on-off `legix` commands by hand
 
 Sometimes it's interesting to try a new command against all available repositories to see if it fails:
 
-`ein t find <corpus> | xargs -P10 -I {} bash -c 'echo {}; gix -r {} <command>`
+`ein t find <corpus> | xargs -P10 -I {} bash -c 'echo {}; legix -r {} <command>`
 
-### Run `gix corpus`
+### Run `legix corpus`
 
 The `corpus` sub-command runs specifically implemented commands against the corpus in a parallel fashion and stores these results in a local sqlite database for
 later comparison.

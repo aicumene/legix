@@ -63,9 +63,9 @@ https://github.com/Byron/gitoxide
 # **Gitoxide**
 ### **is**
 
-**the binaries `gix` and `ein`**
+**the binaries `legix` and `ein`**
 
-<!-- `gix` dev tool, `ein` client + tooling -->
+<!-- `legix` dev tool, `ein` client + tooling -->
 
 ---
 
@@ -76,7 +76,7 @@ https://github.com/Byron/gitoxide
 
 **a Git replica**
 
-<!-- `gix` will never be `git`, never stable, won't mimmick it -->
+<!-- `legix` will never be `git`, never stable, won't mimmick it -->
 <!-- But `gitoxide` should be versatile enough to implement the majority of Git -->
 
 ---
@@ -138,7 +138,7 @@ https://github.com/Byron/gitoxide
 
 - new project with Git integration, `gitoxide` features suffice
     * or you want to contribute what's missing
-    * and you can figure out how to use it (`gix::Repository`)
+    * and you can figure out how to use it (`legix::Repository`)
 * need Git-level repository compatbility
 * need to read from untrusted repositories
 * need next-level performance and fearless concurrency
@@ -279,10 +279,10 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 #[tauri::command(async)]
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), Error> {
     let url =
-        gix::url::parse(repository_url).context("Failed to parse repository URL")?;
+        legix::url::parse(repository_url).context("Failed to parse repository URL")?;
     let should_interrupt = AtomicBool::new(false);
     let mut prepared_clone =
-        gix::prepare_clone(url, target_dir).context("Failed to prepare clone")?;
+        legix::prepare_clone(url, target_dir).context("Failed to prepare clone")?;
     let (mut prepared_checkout, _) = prepared_clone
         .fetch_then_checkout(Discard, &should_interrupt)
         .context("Failed to fetch")?;
@@ -303,10 +303,10 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 ```Rust
 #[tauri::command(async)]
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), Error> {
-    let url = gix::url::parse(repository_url).map_err(anyhow::Error::from)?;
+    let url = legix::url::parse(repository_url).map_err(anyhow::Error::from)?;
     let should_interrupt = AtomicBool::new(false);
 
-    let (mut checkout, _outcome) = gix::prepare_clone(url, target_dir)
+    let (mut checkout, _outcome) = legix::prepare_clone(url, target_dir)
         .map_err(anyhow::Error::from)?
         .fetch_then_checkout(Discard, &should_interrupt)
         .map_err(anyhow::Error::from)?;
@@ -327,10 +327,10 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), UnmarkedError> {
     let should_interrupt = AtomicBool::new(false);
 
-    gix::prepare_clone(repository_url, target_dir)?
-        .fetch_then_checkout(gix::progress::Discard, &should_interrupt)
+    legix::prepare_clone(repository_url, target_dir)?
+        .fetch_then_checkout(legix::progress::Discard, &should_interrupt)
         .map(|(checkout, _outcome)| checkout)?
-        .main_worktree(gix::progress::Discard, &should_interrupt)?;
+        .main_worktree(legix::progress::Discard, &should_interrupt)?;
     Ok(())
 }
 ````
@@ -354,10 +354,10 @@ pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(
 pub fn git_clone_repository(repository_url: &str, target_dir: &Path) -> Result<(), UnmarkedError> {
     let should_interrupt = AtomicBool::new(false);
 
-    gix::prepare_clone(repository_url, target_dir)?
-        .fetch_then_checkout(gix::progress::Discard, &should_interrupt)
+    legix::prepare_clone(repository_url, target_dir)?
+        .fetch_then_checkout(legix::progress::Discard, &should_interrupt)
         .map(|(checkout, _outcome)| checkout)?
-        .main_worktree(gix::progress::Discard, &should_interrupt)?;
+        .main_worktree(legix::progress::Discard, &should_interrupt)?;
     Ok(())
 }
 ````

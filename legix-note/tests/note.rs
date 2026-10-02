@@ -1,0 +1,1045 @@
+use std::{
+    cell::Cell,
+    collections::BTreeSet,
+    io::{self, Read},
+};
+
+use legix_error::{ErrorExt, ExnResult};
+use legix_hash::{Kind, ObjectId, oid};
+use legix_object::{
+    FindExt, Tree, Write,
+    bstr::{BString, ByteSlice},
+    tree::{Entry, EntryKind},
+};
+
+type ObjectDb = legix_odb::memory::Proxy<legix_object::find::Never>;
+
+mod one_shot {
+    use super::*;
+    use legix_error::ExnResult;
+
+    pub fn get(
+        root_tree_id: ObjectId,
+        annotated_object_id: &oid,
+        objects: &impl legix_object::Find,
+    ) -> ExnResult<Option<ObjectId>> {
+        let mut state = legix_note::State::new(root_tree_id, objects)?;
+        state.get(annotated_object_id, objects)
+    }
+
+    pub fn replace(
+        root_tree_id: ObjectId,
+        annotated_object_id: ObjectId,
+        note_blob_id: ObjectId,
+        objects: &(impl legix_object::Find + Write),
+    ) -> ExnResult<legix_note::Edit> {
+        let mut state = legix_note::State::new(root_tree_id, objects)?;
+        state.replace(annotated_object_id, note_blob_id, objects)
+    }
+
+    pub fn remove(
+        root_tree_id: ObjectId,
+        annotated_object_id: ObjectId,
+        objects: &(impl legix_object::Find + Write),
+    ) -> ExnResult<legix_note::Edit> {
+        let mut state = legix_note::State::new(root_tree_id, objects)?;
+        state.remove(annotated_object_id, objects)
+    }
+}
+
+struct CountingObjectDb {
+    inner: ObjectDb,
+    reads: Cell<usize>,
+    writes: Cell<usize>,
+    fail_next_read: Cell<bool>,
+    fail_next_write: Cell<bool>,
+}
+
+impl CountingObjectDb {
+    fn new(kind: Kind) -> Self {
+        Self {
+            inner: ObjectDb::new(legix_object::find::Never, kind),
+            reads: Cell::new(0),
+            writes: Cell::new(0),
+            fail_next_read: Cell::new(false),
+            fail_next_write: Cell::new(false),
+        }
+    }
+
+    fn maybe_fail_write(&self) -> ExnResult {
+        if self.fail_next_write.replace(false) {
+            return Err(io::Error::other("injected write failure").raise_erased());
+        }
+        Ok(())
+    }
+}
+
+impl legix_object::Find for CountingObjectDb {
+    fn try_find<'a>(&self, id: &legix_hash::oid, buffer: &'a mut Vec<u8>) -> ExnResult<Option<legix_object::Data<'a>>> {
+        self.reads.set(self.reads.get() + 1);
+        if self.fail_next_read.replace(false) {
+            return Err(io::Error::other("injected read failure").raise_erased());
+        }
+        self.inner.try_find(id, buffer)
+    }
+}
+
+impl legix_object::Write for CountingObjectDb {
+    fn write_buf_with_known_id(&self, kind: legix_object::Kind, from: &[u8], id: ObjectId) -> ExnResult<ObjectId> {
+        self.writes.set(self.writes.get() + 1);
+        self.maybe_fail_write()?;
+        self.inner.write_buf_with_known_id(kind, from, id)
+    }
+
+    fn write_stream(&self, kind: legix_object::Kind, size: u64, from: &mut dyn Read) -> ExnResult<ObjectId> {
+        self.writes.set(self.writes.get() + 1);
+        self.maybe_fail_write()?;
+        self.inner.write_stream(kind, size, from)
+    }
+
+    fn write_stream_with_known_id(
+        &self,
+        kind: legix_object::Kind,
+        size: u64,
+        from: &mut dyn Read,
+        id: ObjectId,
+    ) -> ExnResult<ObjectId> {
+        self.writes.set(self.writes.get() + 1);
+        self.maybe_fail_write()?;
+        self.inner.write_stream_with_known_id(kind, size, from, id)
+    }
+}
+
+#[test]
+fn reads_notes_without_fanout() -> legix_testtools::Result {
+    assert_note_at_fanout(0)
+}
+
+#[test]
+fn reads_notes_with_one_fanout_level() -> legix_testtools::Result {
+    assert_note_at_fanout(1)
+}
+
+#[test]
+fn reads_notes_with_two_fanout_levels() -> legix_testtools::Result {
+    assert_note_at_fanout(2)
+}
+
+#[test]
+fn reads_notes_with_three_fanout_levels() -> legix_testtools::Result {
+    assert_note_at_fanout(3)
+}
+
+#[test]
+fn replacing_a_note_does_not_read_untouched_fanout_subtrees() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = CountingObjectDb::new(kind);
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let replacement = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let mut annotated = Vec::new();
+    let mut root_entries = Vec::new();
+    for high_nibble in b"0123456789abcdef" {
+        for low_nibble in b"01" {
+            let object = object_id_with_nibbles(kind, &[(0, *high_nibble), (1, *low_nibble)])?;
+            let hex = object.to_hex().to_string();
+            let subtree = objects.write(&Tree {
+                entries: vec![Entry {
+                    mode: EntryKind::Blob.into(),
+                    filename: hex[2..].into(),
+                    oid: note,
+                }],
+            })?;
+            annotated.push(object);
+            root_entries.push(Entry {
+                mode: EntryKind::Tree.into(),
+                filename: hex[..2].into(),
+                oid: subtree,
+            });
+        }
+    }
+    let root = objects.write(&Tree {
+        entries: root_entries.clone(),
+    })?;
+    let target_hex = annotated[0].to_hex().to_string();
+    let replacement_subtree = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: target_hex[2..].into(),
+            oid: replacement,
+        }],
+    })?;
+    root_entries[0].oid = replacement_subtree;
+    let expected_root = objects.write(&Tree { entries: root_entries })?;
+    objects.writes.set(0);
+
+    let outcome = one_shot::replace(root, annotated[0], replacement, &objects)?;
+    assert_eq!(outcome.previous, Some(note), "replacement returns the previous note");
+    assert_eq!(
+        outcome.tree, expected_root,
+        "the rewritten tree matches a path-local edit"
+    );
+    assert_eq!(
+        objects.reads.get(),
+        2,
+        "only the root and the changed fanout subtree are read"
+    );
+    assert_eq!(
+        objects.writes.get(),
+        2,
+        "only the changed fanout subtree and root are written"
+    );
+    assert_eq!(
+        one_shot::get(outcome.tree, &annotated[0], &objects)?,
+        Some(replacement),
+        "the replacement is visible"
+    );
+    Ok(())
+}
+
+#[test]
+fn state_reuses_materialized_trees_across_operations() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = CountingObjectDb::new(kind);
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let replacement = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let root = notes_tree(&objects, &annotated, note, 2)?;
+    objects.reads.set(0);
+
+    let mut state = legix_note::State::new(root, &objects)?;
+    assert_eq!(objects.reads.get(), 1, "initialization reads only the root tree");
+    assert_eq!(state.get(&annotated, &objects)?, Some(note), "the note is found");
+    let reads_after_first_lookup = objects.reads.get();
+    assert_eq!(reads_after_first_lookup, 3, "the first lookup reads both fanout trees");
+    assert_eq!(state.get(&annotated, &objects)?, Some(note), "the cached note is found");
+    assert_eq!(
+        objects.reads.get(),
+        reads_after_first_lookup,
+        "a repeated lookup reuses the materialized trees"
+    );
+
+    let edit = state.replace(annotated, replacement, &objects)?;
+    assert_eq!(edit.previous, Some(note), "replacement returns the cached note");
+    assert_eq!(
+        objects.reads.get(),
+        reads_after_first_lookup,
+        "replacement reuses the materialized trees"
+    );
+    assert_eq!(
+        state.get(&annotated, &objects)?,
+        Some(replacement),
+        "the state contains the replacement"
+    );
+    assert_eq!(
+        objects.reads.get(),
+        reads_after_first_lookup,
+        "looking up the replacement needs no tree reads"
+    );
+    let edit = state.replace(annotated, note, &objects)?;
+    assert_eq!(
+        edit.previous,
+        Some(replacement),
+        "a second edit sees the cached replacement"
+    );
+    assert_eq!(
+        objects.reads.get(),
+        reads_after_first_lookup,
+        "writing the state retains its materialized trees"
+    );
+    let edit = state.remove(annotated, &objects)?;
+    assert_eq!(edit.previous, Some(note), "removal sees the cached note");
+    assert_eq!(state.get(&annotated, &objects)?, None, "the cached note is removed");
+    assert_eq!(
+        objects.reads.get(),
+        reads_after_first_lookup,
+        "removal and its subsequent lookup need no tree reads"
+    );
+    Ok(())
+}
+
+#[test]
+fn staged_edits_reuse_state_without_writing_trees() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = CountingObjectDb::new(kind);
+    let note_blob_id = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let replacement_blob_id = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let root_tree_id = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "metadata".into(),
+            oid: note_blob_id,
+        }],
+    })?;
+    let mut state = legix_note::State::new(root_tree_id, &objects)?;
+    let annotated_object_ids = (0..512_u32)
+        .map(|index| legix_object::compute_hash(kind, legix_object::Kind::Blob, &index.to_le_bytes()))
+        .collect::<Result<Vec<_>, _>>()?;
+    objects.writes.set(0);
+    for &annotated_object_id in &annotated_object_ids {
+        assert_eq!(
+            state.edit(annotated_object_id, Some(note_blob_id), &objects)?,
+            None,
+            "each staged mapping is new"
+        );
+        assert_eq!(
+            state.get(&annotated_object_id, &objects)?,
+            Some(note_blob_id),
+            "lookups see staged mappings"
+        );
+    }
+    assert_eq!(
+        state.edit(annotated_object_ids[0], Some(replacement_blob_id), &objects)?,
+        Some(note_blob_id),
+        "a staged replacement returns the previous note"
+    );
+    assert_eq!(
+        state.edit(annotated_object_ids[1], None, &objects)?,
+        Some(note_blob_id),
+        "a staged removal returns the previous note"
+    );
+    assert_eq!(state.root_tree_id(), root_tree_id, "edits retain the last written root");
+    assert_eq!(objects.writes.get(), 0, "staging a batch writes no trees");
+    assert_eq!(objects.reads.get(), 1, "the whole batch reuses the initialized root");
+
+    let written_tree_id = state.write(&objects)?;
+    let writes = objects.writes.get();
+    assert!(writes > 1, "writing the batch creates fanout trees");
+    assert_eq!(
+        state.write(&objects)?,
+        written_tree_id,
+        "writing without edits is a no-op"
+    );
+    assert_eq!(objects.writes.get(), writes, "a clean state writes no objects");
+    let mut persisted = legix_note::State::new(written_tree_id, &objects)?;
+    for (index, annotated_object_id) in annotated_object_ids.iter().enumerate() {
+        assert_eq!(
+            persisted.get(annotated_object_id, &objects)?,
+            match index {
+                0 => Some(replacement_blob_id),
+                1 => None,
+                _ => Some(note_blob_id),
+            },
+            "the written tree contains the final batch"
+        );
+    }
+    assert_entry_at_path(
+        &objects.inner,
+        written_tree_id,
+        &["metadata"],
+        EntryKind::Blob,
+        note_blob_id,
+    )?;
+
+    state.edit(annotated_object_ids[0], Some(note_blob_id), &objects)?;
+    objects.fail_next_write.set(true);
+    state.write(&objects).expect_err("the injected tree write fails");
+    assert_eq!(
+        state.root_tree_id(),
+        written_tree_id,
+        "a failed flush retains the saved root"
+    );
+    assert_eq!(
+        state.get(&annotated_object_ids[0], &objects)?,
+        Some(replacement_blob_id),
+        "a failed flush discards pending changes"
+    );
+    state.edit(annotated_object_ids[0], Some(note_blob_id), &objects)?;
+    let edit = state.remove(annotated_object_ids[1], &objects)?;
+    assert_eq!(edit.previous, None, "the removed note was already absent");
+    assert_eq!(
+        one_shot::get(edit.tree, &annotated_object_ids[0], &objects)?,
+        Some(note_blob_id),
+        "an immediate operation also flushes previously staged edits"
+    );
+    Ok(())
+}
+
+#[test]
+fn state_recovers_after_failed_operations() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = CountingObjectDb::new(kind);
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let replacement = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let root = notes_tree(&objects, &annotated, note, 2)?;
+    let mut state = legix_note::State::new(root, &objects)?;
+
+    objects.fail_next_read.set(true);
+    state
+        .get(&annotated, &objects)
+        .expect_err("the injected subtree read fails");
+    assert_eq!(state.root_tree_id(), root, "a failed lookup retains the current root");
+    assert_eq!(
+        state.get(&annotated, &objects)?,
+        Some(note),
+        "the state reloads from its root after a failed lookup"
+    );
+
+    objects.fail_next_write.set(true);
+    state
+        .replace(annotated, replacement, &objects)
+        .expect_err("the injected tree write fails");
+    assert_eq!(state.root_tree_id(), root, "a failed edit retains the current root");
+    assert_eq!(
+        state.get(&annotated, &objects)?,
+        Some(note),
+        "the state reloads the pre-edit note after a failed edit"
+    );
+    let edit = state.replace(annotated, replacement, &objects)?;
+    assert_eq!(edit.previous, Some(note), "the recovered state can be edited");
+    assert_eq!(
+        state.root_tree_id(),
+        edit.tree,
+        "a successful edit advances the recovered state"
+    );
+    Ok(())
+}
+
+fn assert_note_at_fanout(fanout: usize) -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let root = notes_tree(&objects, &annotated, note, fanout)?;
+
+    assert_eq!(
+        one_shot::get(root, &annotated, &objects)?,
+        Some(note),
+        "the note is found with {fanout} fanout levels"
+    );
+    Ok(())
+}
+
+fn notes_tree(objects: &impl Write, annotated: &oid, note: ObjectId, fanout: usize) -> legix_testtools::Result<ObjectId> {
+    let hex = annotated.to_hex().to_string();
+    let mut tree = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: BString::from(&hex[fanout * 2..]),
+            oid: note,
+        }],
+    })?;
+
+    for level in (0..fanout).rev() {
+        tree = objects.write(&Tree {
+            entries: vec![Entry {
+                mode: EntryKind::Tree.into(),
+                filename: BString::from(&hex[level * 2..][..2]),
+                oid: tree,
+            }],
+        })?;
+    }
+    Ok(tree)
+}
+
+#[test]
+fn ignores_entries_that_are_not_notes() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = legix_odb::memory::Proxy::new(legix_object::find::Never, kind);
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let hex = annotated.to_hex().to_string();
+    let root = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Tree.into(),
+            filename: BString::from(hex),
+            oid: kind.empty_tree(),
+        }],
+    })?;
+
+    assert_eq!(
+        one_shot::get(root, &annotated, &objects)?,
+        None,
+        "the canonical empty-tree ID in a tree-mode entry at the full object-ID path is not a blob note"
+    );
+    Ok(())
+}
+
+#[test]
+fn mutations_rebalance_when_each_nibble_bucket_has_multiple_notes_and_preserve_non_notes() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let unrelated = objects.write_buf(legix_object::Kind::Blob, b"keep")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let mut root = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "README".into(),
+            oid: unrelated,
+        }],
+    })?;
+    let mut annotated = Vec::new();
+    for nibble in b"0123456789abcdef" {
+        let object = object_id_with_nibble(kind, 0, *nibble)?;
+        annotated.push(object);
+        let outcome = one_shot::replace(root, object, note, &objects)?;
+        assert_eq!(outcome.previous, None, "each distinct object receives a new note");
+        root = outcome.tree;
+    }
+
+    let mut buf = Vec::new();
+    let tree = objects.find_tree(&root, &mut buf)?;
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_tree()).count(),
+        0,
+        "one note in every leading-nibble bucket remains flat, like Git"
+    );
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_blob()).count(),
+        17,
+        "the flat tree contains sixteen notes and README"
+    );
+
+    for nibble in b"0123456789abcde" {
+        let object = object_id_with_nibbles(kind, &[(0, *nibble), (2, b'1')])?;
+        annotated.push(object);
+        let outcome = one_shot::replace(root, object, note, &objects)?;
+        assert_eq!(outcome.previous, None, "each bucket receives a second note");
+        root = outcome.tree;
+    }
+    let mut buf = Vec::new();
+    let tree = objects.find_tree(&root, &mut buf)?;
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_tree()).count(),
+        0,
+        "a bucket with only one note keeps all thirty-one notes flat"
+    );
+
+    let last = object_id_with_nibbles(kind, &[(0, b'f'), (2, b'1')])?;
+    annotated.push(last);
+
+    let outcome = one_shot::replace(root, last, note, &objects)?;
+    assert_eq!(outcome.previous, None, "the final bucket receives its second note");
+    root = outcome.tree;
+
+    let mut buf = Vec::new();
+    let tree = objects.find_tree(&root, &mut buf)?;
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_tree()).count(),
+        16,
+        "two notes in every first-nibble bucket cause Git's first fanout level"
+    );
+    assert!(
+        tree.entries
+            .iter()
+            .any(|entry| entry.filename == "README" && entry.oid == unrelated),
+        "non-note entries survive rebalancing"
+    );
+
+    for object in &annotated {
+        assert_eq!(
+            one_shot::get(root, object, &objects)?,
+            Some(note),
+            "every note remains readable after fanout"
+        );
+    }
+
+    let replacement = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let outcome = one_shot::replace(root, annotated[0], replacement, &objects)?;
+    assert_eq!(outcome.previous, Some(note), "replacement returns the previous note");
+    assert_eq!(
+        one_shot::get(outcome.tree, &annotated[0], &objects)?,
+        Some(replacement),
+        "replacement is visible through lookup"
+    );
+    let outcome = one_shot::remove(outcome.tree, annotated[0], &objects)?;
+    assert_eq!(outcome.previous, Some(replacement), "removal returns the removed note");
+    assert_eq!(
+        one_shot::get(outcome.tree, &annotated[0], &objects)?,
+        None,
+        "the removed mapping is no longer visible"
+    );
+    let mut buf = Vec::new();
+    let tree = objects.find_tree(&outcome.tree, &mut buf)?;
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_tree()).count(),
+        0,
+        "Git collapses fanout when the edited bucket materializes as a single note"
+    );
+
+    let outcome = one_shot::remove(outcome.tree, annotated[16], &objects)?;
+    assert_eq!(outcome.previous, Some(note), "the second removal empties the bucket");
+    let mut buf = Vec::new();
+    let tree = objects.find_tree(&outcome.tree, &mut buf)?;
+    assert_eq!(
+        tree.entries.iter().filter(|entry| entry.mode.is_blob()).count(),
+        31,
+        "emptying one leading-nibble bucket collapses the thirty remaining notes beside README"
+    );
+    Ok(())
+}
+
+#[test]
+fn mutation_fanout_matches_git_at_bucket_count_boundaries() -> legix_testtools::Result {
+    let fixture = legix_testtools::scripted_fixture_read_only("make_notes_fanout_repo.sh")?;
+    let baseline = std::fs::read_to_string(fixture.join("fanout.baseline"))?;
+    let mut lines = baseline.lines();
+
+    let mut note_fields = lines
+        .next()
+        .expect("the baseline starts with the shared note ID")
+        .split(' ');
+    assert_eq!(
+        note_fields.next(),
+        Some("note"),
+        "the first baseline record identifies the note"
+    );
+    let note = ObjectId::from_hex(note_fields.next().expect("the note record has an object ID").as_bytes())?;
+    assert_eq!(note_fields.next(), None, "the note record has exactly two fields");
+
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    assert_eq!(
+        objects.write_buf(legix_object::Kind::Blob, b"note")?,
+        note,
+        "Git and gix-object hash the shared note blob identically"
+    );
+
+    let mut root = kind.empty_tree();
+    let mut additions = 0;
+    let mut removals = 0;
+    let mut checkpoints = 0;
+    for (index, line) in lines.enumerate() {
+        let mut fields = line.split(' ');
+        let operation = fields.next().expect("each baseline record has an operation");
+        match operation {
+            "add" | "remove" => {
+                let annotated_object_id = ObjectId::from_hex(
+                    fields
+                        .next()
+                        .expect("each mutation record has an annotated-object ID")
+                        .as_bytes(),
+                )?;
+                assert_eq!(
+                    fields.next(),
+                    None,
+                    "mutation record {} has exactly two fields",
+                    index + 2
+                );
+                if operation == "add" {
+                    additions += 1;
+                    let outcome = one_shot::replace(root, annotated_object_id, note, &objects)?;
+                    assert_eq!(outcome.previous, None, "baseline additions introduce distinct notes");
+                    root = outcome.tree;
+                } else {
+                    removals += 1;
+                    let outcome = one_shot::remove(root, annotated_object_id, &objects)?;
+                    assert_eq!(outcome.previous, Some(note), "baseline removals remove the shared note");
+                    root = outcome.tree;
+                }
+            }
+            "tree" => {
+                checkpoints += 1;
+                let name = fields.next().expect("each tree checkpoint has a descriptive name");
+                let expected_tree_id = ObjectId::from_hex(
+                    fields
+                        .next()
+                        .expect("each tree checkpoint has Git's resulting tree ID")
+                        .as_bytes(),
+                )?;
+                assert_eq!(
+                    fields.next(),
+                    None,
+                    "tree checkpoint record {} has exactly three fields",
+                    index + 2
+                );
+                assert_eq!(root, expected_tree_id, "the {name} notes tree matches Git");
+            }
+            other => panic!("unknown baseline operation {other:?}"),
+        }
+    }
+    assert_eq!(
+        additions, 32,
+        "the fixture adds two notes to every leading-nibble bucket"
+    );
+    assert_eq!(removals, 2, "the fixture empties one leading-nibble bucket");
+    assert_eq!(checkpoints, 5, "all interesting fanout boundaries are compared");
+    Ok(())
+}
+
+#[test]
+fn edit_lifecycle_handles_empty_trees_replacements_and_no_op_removals() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let root = objects.write(&Tree { entries: Vec::new() })?;
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let child = objects.write_buf(legix_object::Kind::Blob, b"tree contents")?;
+    let tree_note = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "file".into(),
+            oid: child,
+        }],
+    })?;
+
+    assert_eq!(
+        one_shot::get(root, &annotated, &objects)?,
+        None,
+        "an empty notes tree has no mapping"
+    );
+    let absent = one_shot::remove(root, annotated, &objects)?;
+    assert_eq!(absent.previous, None, "removing an absent mapping has no previous note");
+    assert_eq!(
+        absent.tree, root,
+        "removing an absent mapping leaves the root unchanged"
+    );
+
+    let added = one_shot::replace(root, annotated, tree_note, &objects)?;
+    assert_eq!(added.previous, None, "adding the first mapping has no previous note");
+    assert_eq!(
+        one_shot::get(added.tree, &annotated, &objects)?,
+        Some(tree_note),
+        "lookup returns a note even when its object is actually a tree"
+    );
+    assert_note_layout(&objects, added.tree, &annotated, 0, tree_note)?;
+
+    let replacement = objects.write_buf(legix_object::Kind::Blob, b"replacement")?;
+    let replaced = one_shot::replace(added.tree, annotated, replacement, &objects)?;
+    assert_eq!(
+        replaced.previous,
+        Some(tree_note),
+        "replacement returns the tree-valued note"
+    );
+    assert_eq!(
+        one_shot::get(replaced.tree, &annotated, &objects)?,
+        Some(replacement),
+        "lookup observes the replacement"
+    );
+
+    let removed = one_shot::remove(replaced.tree, annotated, &objects)?;
+    assert_eq!(
+        removed.previous,
+        Some(replacement),
+        "removal returns the replacement note"
+    );
+    assert_eq!(
+        removed.tree,
+        kind.empty_tree(),
+        "removing the last note produces the empty tree"
+    );
+    let absent = one_shot::remove(removed.tree, annotated, &objects)?;
+    assert_eq!(absent.previous, None, "a repeated removal is a no-op");
+    assert_eq!(absent.tree, removed.tree, "a repeated removal retains the empty root");
+    Ok(())
+}
+
+#[test]
+fn mutations_create_and_collapse_mixed_deep_fanout() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let mut root = objects.write(&Tree { entries: Vec::new() })?;
+    let mut annotated = BTreeSet::new();
+
+    for nibble in b"0123456789abcdef" {
+        annotated.insert(object_id_with_nibble(kind, 0, *nibble)?);
+        annotated.insert(object_id_with_nibbles(kind, &[(0, *nibble), (2, b'1')])?);
+    }
+    for nibble in b"0123456789abcdef" {
+        annotated.insert(object_id_with_nibble(kind, 2, *nibble)?);
+        annotated.insert(object_id_with_nibbles(kind, &[(2, *nibble), (4, b'1')])?);
+    }
+    for nibble in b"0123456789abcdef" {
+        annotated.insert(object_id_with_nibble(kind, 4, *nibble)?);
+        annotated.insert(object_id_with_nibbles(kind, &[(4, *nibble), (6, b'1')])?);
+    }
+    for object in &annotated {
+        let outcome = one_shot::replace(root, *object, note, &objects)?;
+        assert_eq!(outcome.previous, None, "every generated object is unique");
+        root = outcome.tree;
+    }
+
+    let one_level = object_id_with_nibble(kind, 0, b'f')?;
+    let two_levels = object_id_with_nibble(kind, 2, b'f')?;
+    let three_levels = object_id_with_nibble(kind, 4, b'f')?;
+    let surviving_after_collapse = object_id_with_nibble(kind, 4, b'e')?;
+    let last_in_level_three = object_id_with_nibbles(kind, &[(4, b'f'), (6, b'1')])?;
+    assert_note_layout(&objects, root, &one_level, 1, note)?;
+    assert_note_layout(&objects, root, &two_levels, 2, note)?;
+    assert_note_layout(&objects, root, &three_levels, 3, note)?;
+    assert_note_layout(&objects, root, &last_in_level_three, 3, note)?;
+    for object in &annotated {
+        assert_eq!(
+            one_shot::get(root, object, &objects)?,
+            Some(note),
+            "mixed fanout depths remain readable"
+        );
+    }
+
+    let outcome = one_shot::remove(root, last_in_level_three, &objects)?;
+    assert_eq!(outcome.previous, Some(note), "deep removal returns its note");
+    assert_eq!(
+        one_shot::get(outcome.tree, &last_in_level_three, &objects)?,
+        None,
+        "the deep mapping is removed"
+    );
+    assert_note_layout(&objects, outcome.tree, &three_levels, 2, note)?;
+
+    let outcome = one_shot::remove(outcome.tree, three_levels, &objects)?;
+    assert_eq!(
+        outcome.previous,
+        Some(note),
+        "the second deep removal empties its bucket"
+    );
+    // Loading the edited subtree exposes its single remaining note, so Git's lazy heuristic collapses the deepest level.
+    assert_note_layout(&objects, outcome.tree, &surviving_after_collapse, 2, note)?;
+    assert_note_layout(&objects, outcome.tree, &two_levels, 2, note)?;
+    assert_note_layout(&objects, outcome.tree, &one_level, 1, note)?;
+    Ok(())
+}
+
+#[test]
+fn mutations_preserve_non_notes_at_root_and_below_hex_trees() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let payload = objects.write_buf(legix_object::Kind::Blob, b"keep")?;
+    let nested = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "README".into(),
+            oid: payload,
+        }],
+    })?;
+    let existing_object = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"existing")?;
+    let full_hex_tree = existing_object.to_hex().to_string();
+    let full_non_hex_blob = "g".repeat(kind.len_in_hex());
+    let root = objects.write(&Tree {
+        entries: vec![
+            Entry {
+                mode: EntryKind::Tree.into(),
+                filename: full_hex_tree.clone().into(),
+                oid: kind.empty_tree(),
+            },
+            Entry {
+                mode: EntryKind::Tree.into(),
+                filename: "CD".into(),
+                oid: nested,
+            },
+            Entry {
+                mode: EntryKind::BlobExecutable.into(),
+                filename: "ab".into(),
+                oid: payload,
+            },
+            Entry {
+                mode: EntryKind::Blob.into(),
+                filename: full_non_hex_blob.clone().into(),
+                oid: payload,
+            },
+            Entry {
+                mode: EntryKind::Tree.into(),
+                filename: "zz".into(),
+                oid: nested,
+            },
+        ],
+    })?;
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"new")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+    let outcome = one_shot::replace(root, annotated, note, &objects)?;
+
+    assert_entry_at_path(&objects, outcome.tree, &["ab"], EntryKind::BlobExecutable, payload)?;
+    assert_entry_at_path(&objects, outcome.tree, &["CD", "README"], EntryKind::Blob, payload)?;
+    assert_entry_at_path(
+        &objects,
+        outcome.tree,
+        &[full_hex_tree.as_str()],
+        EntryKind::Tree,
+        kind.empty_tree(),
+    )?;
+    assert_entry_at_path(
+        &objects,
+        outcome.tree,
+        &[full_non_hex_blob.as_str()],
+        EntryKind::Blob,
+        payload,
+    )?;
+    assert_entry_at_path(&objects, outcome.tree, &["zz"], EntryKind::Tree, nested)?;
+    assert_eq!(
+        one_shot::get(outcome.tree, &annotated, &objects)?,
+        Some(note),
+        "the new note coexists with all preserved entries"
+    );
+    Ok(())
+}
+
+#[test]
+fn mutations_reject_mixed_hash_kinds() -> legix_testtools::Result {
+    let objects = ObjectDb::new(legix_object::find::Never, Kind::Sha1);
+    let root = objects.write(&Tree { entries: Vec::new() })?;
+    let sha1 = ObjectId::null(Kind::Sha1);
+    let sha256 = ObjectId::null(Kind::Sha256);
+
+    let err =
+        one_shot::replace(root, sha256, sha1, &objects).expect_err("the annotated object has the wrong hash kind");
+    assert!(
+        err.is_validation(),
+        "an annotated-object hash mismatch is a validation error"
+    );
+    insta::assert_debug_snapshot!(err.probable_cause(), "replace reports an annotated-object hash mismatch", @r#"
+    Message {
+        message: "Notes, annotated objects, and their root tree must use the same hash kind",
+        class: Validation,
+    }
+    "#);
+    let err = one_shot::replace(root, sha1, sha256, &objects).expect_err("the note has the wrong hash kind");
+    assert!(err.is_validation(), "a note hash mismatch is a validation error");
+    insta::assert_debug_snapshot!(err.probable_cause(), "replace reports a note hash mismatch", @r#"
+    Message {
+        message: "Notes, annotated objects, and their root tree must use the same hash kind",
+        class: Validation,
+    }
+    "#);
+    let err = one_shot::remove(root, sha256, &objects).expect_err("the annotated object has the wrong hash kind");
+    assert!(
+        err.is_validation(),
+        "an annotated-object hash mismatch is a validation error"
+    );
+    insta::assert_debug_snapshot!(err.probable_cause(), "remove reports an annotated-object hash mismatch", @r#"
+    Message {
+        message: "The annotated object and notes root tree must use the same hash kind",
+        class: Validation,
+    }
+    "#);
+    Ok(())
+}
+
+#[test]
+#[cfg(feature = "sha256")]
+fn edits_support_sha256_notes_trees() -> legix_testtools::Result {
+    let kind = Kind::Sha256;
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let root = objects.write(&Tree { entries: Vec::new() })?;
+    let annotated = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"annotated")?;
+    let note = objects.write_buf(legix_object::Kind::Blob, b"note")?;
+
+    let added = one_shot::replace(root, annotated, note, &objects)?;
+    assert_eq!(added.previous, None, "the SHA-256 mapping is new");
+    assert_eq!(added.tree.kind(), kind, "the rewritten root retains its hash kind");
+    assert_eq!(
+        one_shot::get(added.tree, &annotated, &objects)?,
+        Some(note),
+        "SHA-256 notes can be read after insertion"
+    );
+    let removed = one_shot::remove(added.tree, annotated, &objects)?;
+    assert_eq!(removed.previous, Some(note), "SHA-256 removal returns the note");
+    assert_eq!(
+        removed.tree,
+        kind.empty_tree(),
+        "removing the last SHA-256 note yields its empty tree"
+    );
+    Ok(())
+}
+
+#[test]
+fn mutations_reject_duplicate_mappings_across_layouts() -> legix_testtools::Result {
+    let kind = legix_testtools::object_hash();
+    let objects = ObjectDb::new(legix_object::find::Never, kind);
+    let annotated = ObjectId::null(kind);
+    let hex = annotated.to_hex().to_string();
+    let flat_note = objects.write_buf(legix_object::Kind::Blob, b"flat")?;
+    let fanout_note = objects.write_buf(legix_object::Kind::Blob, b"fanout")?;
+    let subtree = objects.write(&Tree {
+        entries: vec![Entry {
+            mode: EntryKind::Blob.into(),
+            filename: hex[2..].into(),
+            oid: fanout_note,
+        }],
+    })?;
+    let root = objects.write(&Tree {
+        entries: vec![
+            Entry {
+                mode: EntryKind::Tree.into(),
+                filename: hex[..2].into(),
+                oid: subtree,
+            },
+            Entry {
+                mode: EntryKind::Blob.into(),
+                filename: hex.into(),
+                oid: flat_note,
+            },
+        ],
+    })?;
+    let other = legix_object::compute_hash(kind, legix_object::Kind::Blob, b"other")?;
+
+    let err = one_shot::replace(root, other, flat_note, &objects)
+        .expect_err("ambiguous existing mappings cannot be rewritten losslessly");
+    assert!(err.is_corrupted(), "duplicate mappings indicate a corrupt notes tree");
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err.probable_cause()), &[]), "mutations diagnose duplicate flat and fanout mappings", @r#"
+    Message {
+        message: "Multiple notes map to object Oid(1)",
+        class: Corruption,
+    }
+    "#);
+    Ok(())
+}
+
+fn object_id_with_nibble(kind: Kind, offset: usize, nibble: u8) -> legix_testtools::Result<ObjectId> {
+    object_id_with_nibbles(kind, &[(offset, nibble)])
+}
+
+fn object_id_with_nibbles(kind: Kind, nibbles: &[(usize, u8)]) -> legix_testtools::Result<ObjectId> {
+    let mut hex = vec![b'0'; kind.len_in_hex()];
+    for &(offset, nibble) in nibbles {
+        hex[offset] = nibble;
+    }
+    Ok(ObjectId::from_hex(&hex)?)
+}
+
+fn assert_note_layout(
+    objects: &ObjectDb,
+    root: ObjectId,
+    annotated: &oid,
+    fanout: usize,
+    note: ObjectId,
+) -> legix_testtools::Result {
+    let hex = annotated.to_hex().to_string();
+    let mut path = Vec::with_capacity(fanout + 1);
+    for level in 0..fanout {
+        path.push(&hex[level * 2..][..2]);
+    }
+    path.push(&hex[fanout * 2..]);
+    assert_entry_at_path(objects, root, &path, EntryKind::Blob, note)
+}
+
+fn assert_entry_at_path(
+    objects: &ObjectDb,
+    root: ObjectId,
+    path: &[&str],
+    expected_kind: EntryKind,
+    expected_oid: ObjectId,
+) -> legix_testtools::Result {
+    let mut tree_id = root;
+    let mut buf = Vec::new();
+    for (index, component) in path.iter().enumerate() {
+        let is_last = index + 1 == path.len();
+        let expected_tree = if is_last {
+            expected_kind == EntryKind::Tree
+        } else {
+            true
+        };
+        let tree = objects.find_tree(&tree_id, &mut buf)?;
+        let entry = tree
+            .bisect_entry(component.as_bytes().as_bstr(), expected_tree)
+            .unwrap_or_else(|| panic!("entry at {} is present", path[..=index].join("/")));
+        if is_last {
+            assert_eq!(
+                entry.mode.kind(),
+                expected_kind,
+                "entry at {} retains its mode",
+                path.join("/")
+            );
+            assert_eq!(
+                entry.oid,
+                expected_oid,
+                "entry at {} retains its object ID",
+                path.join("/")
+            );
+        } else {
+            assert!(
+                entry.mode.is_tree(),
+                "{} is an intermediate tree",
+                path[..=index].join("/")
+            );
+            tree_id = entry.oid.to_owned();
+        }
+    }
+    Ok(())
+}

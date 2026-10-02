@@ -4,7 +4,7 @@ pub struct Options {
 
 pub(super) mod function {
     use anyhow::Context;
-    use gix::{
+    use legix::{
         ObjectId,
         blame::BlamePathEntry,
         bstr::{BString, ByteSlice},
@@ -28,32 +28,32 @@ pub(super) mod function {
         Options { verbatim }: Options,
     ) -> anyhow::Result<()> {
         let prefix = if dry_run { "WOULD" } else { "Will" };
-        let repo = gix::open(worktree_dir)?;
+        let repo = legix::open(worktree_dir)?;
 
-        let suspect: gix::ObjectId = repo.head()?.into_peeled_id()?.into();
-        let cache: Option<gix::commitgraph::Graph> = repo.commit_graph_if_enabled()?;
+        let suspect: legix::ObjectId = repo.head()?.into_peeled_id()?.into();
+        let cache: Option<legix::commitgraph::Graph> = repo.commit_graph_if_enabled()?;
         let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
         let diff_algorithm = repo.diff_algorithm()?;
 
-        let options = gix::blame::Options {
+        let options = legix::blame::Options {
             diff_algorithm,
-            ranges: gix::blame::BlameRanges::default(),
+            ranges: legix::blame::BlameRanges::default(),
             since: None,
-            rewrites: Some(gix::diff::Rewrites::default()),
+            rewrites: Some(legix::diff::Rewrites::default()),
             debug_track_path: true,
         };
 
         let index = repo.index_or_empty()?;
 
         // The following block, including the `TODO` comment, comes from
-        // `gitoxide_core::repository::blame`.
-        let file = gix::path::os_str_into_bstr(file).map_err(gix::Exn::into_error)?;
+        // `legix_core::repository::blame`.
+        let file = legix::path::os_str_into_bstr(file).map_err(legix::Exn::into_error)?;
         let specs = repo.pathspec(
             false,
             [file],
             true,
             &index,
-            gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
+            legix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping.adjust_for_bare(repo.is_bare()),
         )?;
         // TODO: there should be a way to normalize paths without going through patterns, at least in this case maybe?
         //       `Search` actually sorts patterns by excluding or not, all that can lead to strange results.
@@ -64,15 +64,15 @@ pub(super) mod function {
             .next()
             .expect("exactly one pattern");
 
-        let outcome = gix::blame::file(
+        let outcome = legix::blame::file(
             &repo.objects,
-            gix::blame::Start::Commit(suspect),
+            legix::blame::Start::Commit(suspect),
             cache,
             &mut resource_cache,
             file.as_bstr(),
             options,
         )
-        .map_err(gix::Exn::into_error)?;
+        .map_err(legix::Exn::into_error)?;
 
         let blame_infos = outcome
             .blame_path
@@ -95,7 +95,7 @@ pub(super) mod function {
                 let blob = repo
                     .objects
                     .find_blob(&blame_path_entry.blob_id, &mut buf)
-                    .map_err(gix::Exn::into_error)?
+                    .map_err(legix::Exn::into_error)?
                     .data;
 
                 if verbatim {

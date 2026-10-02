@@ -49,106 +49,106 @@ doc $RUSTDOCFLAGS='-D warnings':
 [group('Tests')]
 unit-tests:
     cargo nextest run --no-fail-fast
-    cargo nextest run -p gix-attributes --features serde --no-fail-fast
+    cargo nextest run -p legix-attributes --features serde --no-fail-fast
     # Test repository snapshots with the default pure-gix backend and the Git CLI backend.
-    cargo nextest run -p gix-testtools --features sbom --no-fail-fast
-    cargo nextest run -p gix-testtools --no-default-features --features worktree-exclusions,sha1,sha256 --no-fail-fast
-    cargo nextest run -p gix-testtools --features xz --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-archive --no-default-features --features sha1 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-archive --no-default-features --features sha1,tar --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-archive --no-default-features --features sha1,tar_gz --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-archive --no-default-features --features sha1,zip --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-archive --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-archive --no-default-features --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-archive --no-default-features --features sha256,tar --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-archive --no-default-features --features sha256,tar_gz --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-archive --no-default-features --features sha256,zip --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-diff --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-diff --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-status --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-status --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-dir --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-dir --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree-state --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-state --features sha256,parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree --features sha256,parallel --no-fail-fast
-    cargo nextest run -p gix-error --no-fail-fast --test auto-chain-error --features auto-chain-error
-    cargo nextest run -p gix-error --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-filter --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-filter --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-fsck --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-fsck --features sha256 --no-fail-fast
-    cargo nextest run -p gix-hash --features sha1 --no-fail-fast
-    cargo nextest run -p gix-hash --features sha1,sha256 --no-fail-fast
-    cargo nextest run -p gix-hash --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-commitgraph --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-commitgraph --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-object --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-object --no-fail-fast
-    cargo nextest run -p gix-tempfile --features signals --no-fail-fast
-    cargo nextest run -p gix-features --all-features --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-ref --all-features --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-ref --all-features --no-fail-fast
-    cargo nextest run -p gix-odb --all-features --no-fail-fast
-    cargo nextest run -p gix-odb --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-odb --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-odb --no-fail-fast
+    cargo nextest run -p legix-testtools --features sbom --no-fail-fast
+    cargo nextest run -p legix-testtools --no-default-features --features worktree-exclusions,sha1,sha256 --no-fail-fast
+    cargo nextest run -p legix-testtools --features xz --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-archive --no-default-features --features sha1 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-archive --no-default-features --features sha1,tar --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-archive --no-default-features --features sha1,tar_gz --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-archive --no-default-features --features sha1,zip --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-archive --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-archive --no-default-features --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-archive --no-default-features --features sha256,tar --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-archive --no-default-features --features sha256,tar_gz --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-archive --no-default-features --features sha256,zip --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-diff --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-diff --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-status --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-status --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-dir --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-dir --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-worktree-state --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-worktree-state --features sha256,parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-worktree --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-worktree --features sha256,parallel --no-fail-fast
+    cargo nextest run -p legix-error --no-fail-fast --test auto-chain-error --features auto-chain-error
+    cargo nextest run -p legix-error --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-filter --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-filter --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-fsck --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-fsck --features sha256 --no-fail-fast
+    cargo nextest run -p legix-hash --features sha1 --no-fail-fast
+    cargo nextest run -p legix-hash --features sha1,sha256 --no-fail-fast
+    cargo nextest run -p legix-hash --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-commitgraph --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-commitgraph --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-object --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-object --no-fail-fast
+    cargo nextest run -p legix-tempfile --features signals --no-fail-fast
+    cargo nextest run -p legix-features --all-features --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-ref --all-features --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-ref --all-features --no-fail-fast
+    cargo nextest run -p legix-odb --all-features --no-fail-fast
+    cargo nextest run -p legix-odb --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-odb --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-odb --no-fail-fast
     # cover the parallel regression test under SHA-256, SHA-1 is covered by --features parallel above
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-odb --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-pack --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-pack --no-fail-fast
-    cargo nextest run -p gix-pack --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-index --features parallel --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-index --features parallel --no-fail-fast
-    cargo nextest run -p gix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
-    cargo nextest run -p gix-packetline --features async-io --test async-packetline --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-curl,http-client-insecure-credentials --test blocking-transport-http-only --no-fail-fast
-    cargo nextest run -p gix-transport --features http-client-reqwest --no-fail-fast
-    cargo nextest run -p gix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials --test blocking-transport --no-fail-fast
-    cargo nextest run -p gix-transport --features async-client --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-traverse --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-traverse --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-merge --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-merge --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-negotiate --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-negotiate --features sha256 --no-fail-fast
-    cargo nextest run -p gix-protocol --features blocking-client --no-fail-fast
-    cargo nextest run -p gix-protocol --features blocking-client,sha256 --no-fail-fast
-    cargo nextest run -p gix-protocol --features async-client --no-fail-fast
-    cargo nextest run -p gix-protocol --features async-client,sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-blame --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-blame --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-refspec --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-refspec --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-revision --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-revision --features sha256 --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p gix-worktree-stream --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix-worktree-stream --features sha256 --no-fail-fast
-    cargo nextest run -p gix --no-default-features --features basic,comfort,max-performance-safe --no-fail-fast
-    cargo nextest run -p gix --no-default-features --features basic,extras,comfort --no-fail-fast
-    cargo nextest run -p gix --features async-network-client --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix --features async-network-client --no-fail-fast
-    cargo nextest run -p gix --features blocking-network-client --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix --features blocking-network-client --no-fail-fast
-    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p gix --no-fail-fast
-    cargo nextest run -p gix --no-default-features --features sha256 --lib --no-fail-fast
-    cargo nextest run -p gitoxide-core --lib --no-tests=warn --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-odb --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-pack --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-pack --no-fail-fast
+    cargo nextest run -p legix-pack --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-index --features parallel --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-index --features parallel --no-fail-fast
+    cargo nextest run -p legix-packetline --features blocking-io --test blocking-packetline --no-fail-fast
+    cargo nextest run -p legix-packetline --features async-io --test async-packetline --no-fail-fast
+    cargo nextest run -p legix-transport --features http-client-curl --no-fail-fast
+    cargo nextest run -p legix-transport --features http-client-curl,http-client-insecure-credentials --test blocking-transport-http-only --no-fail-fast
+    cargo nextest run -p legix-transport --features http-client-reqwest --no-fail-fast
+    cargo nextest run -p legix-transport --no-default-features --features blocking-client,http-client-reqwest,http-client-insecure-credentials --test blocking-transport --no-fail-fast
+    cargo nextest run -p legix-transport --features async-client --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-traverse --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-traverse --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-merge --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-merge --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-negotiate --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-negotiate --features sha256 --no-fail-fast
+    cargo nextest run -p legix-protocol --features blocking-client --no-fail-fast
+    cargo nextest run -p legix-protocol --features blocking-client,sha256 --no-fail-fast
+    cargo nextest run -p legix-protocol --features async-client --no-fail-fast
+    cargo nextest run -p legix-protocol --features async-client,sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-blame --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-blame --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-refspec --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-refspec --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-revision --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-revision --features sha256 --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha1 cargo nextest run -p legix-worktree-stream --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix-worktree-stream --features sha256 --no-fail-fast
+    cargo nextest run -p legix --no-default-features --features basic,comfort,max-performance-safe --no-fail-fast
+    cargo nextest run -p legix --no-default-features --features basic,extras,comfort --no-fail-fast
+    cargo nextest run -p legix --features async-network-client --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix --features async-network-client --no-fail-fast
+    cargo nextest run -p legix --features blocking-network-client --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix --features blocking-network-client --no-fail-fast
+    env GIX_TEST_FIXTURE_HASH=sha256 cargo nextest run -p legix --no-fail-fast
+    cargo nextest run -p legix --no-default-features --features sha256 --lib --no-fail-fast
+    cargo nextest run -p legix-core --lib --no-tests=warn --no-fail-fast
 
 # Run all doctests
 [group('Tests')]
 doc-tests:
     cargo test --workspace --doc --no-fail-fast
     # `cargo nextest` doesn't run doctests, so cover feature-gated examples explicitly here.
-    cargo test -p gix-packetline --doc --features blocking-io --no-fail-fast
-    cargo test -p gix --doc --no-default-features --no-fail-fast
-    cargo test -p gix --doc --no-default-features --features revision --no-fail-fast
+    cargo test -p legix-packetline --doc --features blocking-io --no-fail-fast
+    cargo test -p legix --doc --no-default-features --no-fail-fast
+    cargo test -p legix --doc --no-default-features --features revision --no-fail-fast
 
 # Run optional flaky async tests
 [group('Tests')]
 unit-tests-flaky:
-    cargo test -p gix --features async-network-client-async-std
+    cargo test -p legix --features async-network-client-async-std
 
 # Extract cargo metadata, excluding dependencies, and query it
 [private]
@@ -164,28 +164,28 @@ dbg: (query-meta '.target_directory + "/debug"')
 [group('Tests')]
 journey-tests:
     cargo build --features http-client-curl-rustls
-    cargo build -p gix-testtools --bin jtt --features sha1
+    cargo build -p legix-testtools --bin jtt --features sha1
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max
 
 # Run journey tests (`max-pure`)
 [group('Tests')]
 journey-tests-pure:
     cargo build --no-default-features --features max-pure
-    cargo build -p gix-testtools --bin jtt --features sha1
+    cargo build -p legix-testtools --bin jtt --features sha1
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" max-pure
 
 # Run journey tests (`small`)
 [group('Tests')]
 journey-tests-small:
     cargo build --no-default-features --features small
-    cargo build -p gix-testtools --features sha1
+    cargo build -p legix-testtools --features sha1
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" small
 
 # Run journey tests (`lean-async`)
 [group('Tests')]
 journey-tests-async:
     cargo build --no-default-features --features lean-async
-    cargo build -p gix-testtools --features sha1
+    cargo build -p legix-testtools --features sha1
     dbg="$({{ j }} dbg)" && tests/journey.sh "$dbg/ein" "$dbg/gix" "$dbg/jtt" async
 
 # Build a customized `cross` container image for testing
@@ -215,11 +215,11 @@ cross-test-android: (cross-test 'armv7-linux-androideabi' '--no-default-features
 check-size:
     etc/scripts/check-package-size.sh
 
-# Print the minimum Rust version for `gix` (X.Y.Z)
+# Print the minimum Rust version for `legix` (X.Y.Z)
 [group('Maintenance')]
 msrv: (query-meta '''
     .packages[]
-    | select(.name == "gix")
+    | select(.name == "legix")
     | .rust_version
     | sub("(?<xy>^[0-9]+[.][0-9]+$)"; "\(.xy).0")
 ''')
@@ -230,12 +230,12 @@ msrv-badge:
     msrv="$({{ j }} msrv)" && \
         sed "s/{MSRV}/$msrv/g" etc/msrv-badge.template.svg >etc/msrv-badge.svg
 
-# Build `gix` and its locked dependencies with this Rust version
+# Build `legix` and its locked dependencies with this Rust version
 [group('Maintenance')]
 check-rust-version rust-version:
     rustc +{{ rust-version }} --version
-    cargo +{{ rust-version }} build --locked -p gix
-    cargo +{{ rust-version }} build --locked -p gix \
+    cargo +{{ rust-version }} build --locked -p legix
+    cargo +{{ rust-version }} build --locked -p legix \
         --no-default-features --features async-network-client,max-performance,sha1
 
 # Enter a nix-shell able to build on macOS
@@ -258,12 +258,12 @@ sbom-install:
 [group('Dependencies and SBOMs')]
 [positional-arguments]
 sbom *args:
-    cargo run --locked -p gix-testtools --bin jtt --features sha1,sbom -- sbom "$@"
+    cargo run --locked -p legix-testtools --bin jtt --features sha1,sbom -- sbom "$@"
 
 # Test SBOM generation with the tools installed by sbom-install
 [group('Dependencies and SBOMs')]
 sbom-test:
-    cargo test --locked -p gix-testtools --features sha1,sbom --test sbom -- --include-ignored
+    cargo test --locked -p legix-testtools --features sha1,sbom --test sbom -- --include-ignored
 
 # Run unit tests with `cargo nextest` (no doctests)
 [group('Development')]

@@ -1,0 +1,39 @@
+lints.workspace = true
+
+[package]
+name = "legix-submodule"
+version = "0.35.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project dealing git submodules"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-refspec/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-refspec/sha256"]
+
+[dependencies]
+legix-pathspec = { version = "^0.21.0", path = "../legix-pathspec" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-refspec = { version = "^0.46.0", path = "../legix-refspec" }
+legix-config = { version = "^0.61.0", path = "../legix-config" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-url = { version = "^0.39.0", path = "../legix-url" }
+
+bstr = { version = "1.12.0", default-features = false }
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-testtools = { path = "../tests/tools" }
+legix-features = { path = "../legix-features", features = ["walkdir"] }
+
+[package.metadata.docs.rs]
+features = ["sha1"]

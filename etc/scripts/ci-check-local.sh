@@ -75,7 +75,7 @@ run_fast_checks
 # nextest run below still executes the full workspace with archive creation.
 run env GIX_TEST_IGNORE_ARCHIVES=1 just ci-test
 run just doc-tests
-run env GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI=1 cargo nextest run --workspace --no-fail-fast --exclude gix-error
+run env GIX_TEST_CREATE_ARCHIVES_EVEN_ON_CI=1 cargo nextest run --workspace --no-fail-fast --exclude legix-error
 # Archive-generating tests legitimately rewrite tracked fixtures and create new ones.
 # Clean only this known class so every other mutation stays visible.
 git restore -- ':(glob)**/tests/fixtures/generated-archives/*.tar'

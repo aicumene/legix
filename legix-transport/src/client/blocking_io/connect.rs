@@ -1,0 +1,92 @@
+pub use crate::client::non_io_types::connect::Options;
+
+pub(crate) mod function {
+    use crate::client::blocking_io::Transport;
+    #[cfg(feature = "http-client-curl")]
+    use crate::client::blocking_io::http::curl::Curl;
+    #[cfg(all(feature = "http-client-reqwest", not(feature = "http-client-curl")))]
+    use crate::client::blocking_io::http::reqwest::Remote as Reqwest;
+    use legix_error::ExnMessageResult;
+    use legix_error::{ErrorExt, ResultExt, message};
+
+    /// A general purpose connector connecting to a repository identified by the given `url`.
+    ///
+    /// This includes connections to
+    /// [local repositories](crate::client::blocking_io::file::connect()),
+    /// [repositories over ssh](crate::client::blocking_io::ssh::connect()),
+    /// [git daemons](crate::client::blocking_io::connect::connect()),
+    /// and if compiled in connections to [git repositories over https](crate::client::blocking_io::http::connect()).
+    ///
+    /// Use `options` to further control specifics of the transport resulting from the connection.
+    pub fn connect<Url, E>(url: Url, options: super::Options) -> ExnMessageResult<Box<dyn Transport + Send>>
+    where
+        Url: TryInto<legix_url::Url, Error = E>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let mut url = url.try_into().or_raise(|| message("Could not parse URL"))?;
+        Ok(match url.scheme {
+            legix_url::Scheme::Ext | legix_url::Scheme::Helper(_) | legix_url::Scheme::HelperUrl(_) => {
+                return Err(message!("The '{}' protocol is currently unsupported", url.scheme).raise());
+            }
+            legix_url::Scheme::File => {
+                if url.user().is_some() || url.password().is_some() || url.host().is_some() || url.port.is_some() {
+                    return Err(message!(
+                        "The url {:?} contains information that would not be used by the {} protocol",
+                        url.to_bstring(),
+                        url.scheme
+                    )
+                    .raise());
+                }
+                Box::new(
+                    crate::client::blocking_io::file::connect(url.path, options.version, options.trace)
+                        .or_raise(|| message("connection failed"))?,
+                )
+            }
+            legix_url::Scheme::Ssh => Box::new({
+                crate::client::blocking_io::ssh::connect(url, options.version, options.ssh, options.trace)
+                    .or_raise(|| message("connection failed"))?
+            }),
+            legix_url::Scheme::Git => {
+                if url.user().is_some() {
+                    return Err(message!(
+                        "The url {:?} contains information that would not be used by the {} protocol",
+                        url.to_bstring(),
+                        url.scheme
+                    )
+                    .raise());
+                }
+                Box::new({
+                    let path = std::mem::take(&mut url.path);
+                    crate::client::git::blocking_io::connect(
+                        url.host().expect("host is present in url"),
+                        path,
+                        options.version,
+                        url.port,
+                        options.trace,
+                    )
+                    .or_raise(|| message("connection failed"))?
+                })
+            }
+            #[cfg(not(any(feature = "http-client-curl", feature = "http-client-reqwest")))]
+            legix_url::Scheme::Https | legix_url::Scheme::Http => {
+                return Err(message!(
+                    "'{}' is not compiled in. Compile with the 'http-client-curl' or 'http-client-reqwest' cargo feature",
+                    url.scheme
+                )
+                .raise());
+            }
+            #[cfg(feature = "http-client-curl")]
+            legix_url::Scheme::Https | legix_url::Scheme::Http => Box::new(
+                crate::client::blocking_io::http::connect::<Curl>(url, options.version, options.trace),
+            ),
+            #[cfg(all(feature = "http-client-reqwest", not(feature = "http-client-curl")))]
+            legix_url::Scheme::Https | legix_url::Scheme::Http => Box::new(crate::client::blocking_io::http::connect::<
+                Reqwest,
+            >(
+                url, options.version, options.trace
+            )),
+        })
+    }
+}
+
+pub use function::connect;

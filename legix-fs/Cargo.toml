@@ -1,0 +1,34 @@
+lints.workspace = true
+
+[package]
+name = "legix-fs"
+version = "0.23.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate providing file system specific utilities to `gitoxide`"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = true
+
+[features]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde"]
+
+[dependencies]
+bstr = "1.12.0"
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-features = { version = "^0.50.0", path = "../legix-features", features = ["fs-read-dir"] }
+legix-utils = { version = "^0.4.0", path = "../legix-utils" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["std", "derive"] }
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
+insta = "1.46.3"
+crossbeam-channel = "0.5.15"
+is_ci = "1.1.1"
+tempfile = "3.26.0"

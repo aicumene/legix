@@ -1,0 +1,61 @@
+use legix_error::{ErrorExt, ResultExt};
+use legix_pathspec::MagicSignature;
+
+use crate::{AttributeStack, Pathspec, Repository, Result, bstr::BStr, config::cache::util::ApplyLeniencyDefault};
+
+impl Repository {
+    /// Create a new pathspec abstraction that allows to conduct searches using `patterns`.
+    /// `inherit_ignore_case` should be `true` if `patterns` will match against files on disk, or `false` otherwise, for more natural matching
+    /// (but also note that `git` does not do that).
+    /// `index` may be needed to load attributes which is required only if `patterns` refer to attributes via `:(attr:…)` syntax.
+    /// In the same vein, `attributes_source` affects where `.gitattributes` files are read from if pathspecs need to match against attributes.
+    /// If `empty_patterns_match_prefix` is `true`, then even empty patterns will match only what's inside of the prefix. Otherwise
+    /// they will match everything.
+    ///
+    /// It will be initialized exactly how it would, and attribute matching will be conducted by reading the worktree first if available.
+    /// If that is not desirable, consider calling [`Pathspec::new()`] directly.
+    #[doc(alias = "Pathspec", alias = "git2")]
+    pub fn pathspec(
+        &self,
+        empty_patterns_match_prefix: bool,
+        patterns: impl IntoIterator<Item = impl AsRef<BStr>>,
+        inherit_ignore_case: bool,
+        index: &legix_index::State,
+        attributes_source: legix_worktree::stack::state::attributes::Source,
+    ) -> Result<Pathspec<'_>> {
+        Pathspec::new(self, empty_patterns_match_prefix, patterns, inherit_ignore_case, || {
+            self.attributes_only(index, attributes_source)
+                .map(AttributeStack::detach)
+                .or_erased()
+        })
+    }
+
+    /// Return default settings that are required when [parsing pathspecs](legix_pathspec::parse()) by hand.
+    ///
+    /// These are stemming from environment variables which have been converted to [config settings](crate::config::tree::gitoxide::Pathspec),
+    /// which now serve as authority for configuration.
+    pub fn pathspec_defaults(&self) -> Result<legix_pathspec::Defaults> {
+        self.config.pathspec_defaults().map_err(legix_error::Exn::into_error)
+    }
+
+    /// Similar to [Self::pathspec_defaults()], but will automatically configure the returned defaults to match case-insensitively if the underlying
+    /// filesystem is also configured to be case-insensitive according to `core.ignoreCase`, and `inherit_ignore_case` is `true`.
+    pub fn pathspec_defaults_inherit_ignore_case(&self, inherit_ignore_case: bool) -> Result<legix_pathspec::Defaults> {
+        let mut defaults = self.config.pathspec_defaults()?;
+        if inherit_ignore_case
+            && self
+                .config
+                .fs_capabilities()
+                .with_lenient_default(self.config.lenient_config)
+                .map_err(|err| {
+                    err.and_raise(legix_error::message(
+                        "Filesystem configuration could not be obtained to learn about case sensitivity",
+                    ))
+                })?
+                .ignore_case
+        {
+            defaults.signature |= MagicSignature::ICASE;
+        }
+        Ok(defaults)
+    }
+}

@@ -24,7 +24,7 @@ Priority key:
 ## P0 - Fix First
 
 1. [#1534](https://github.com/GitoxideLabs/gitoxide/issues/1534) -
-   `gitoxide-core` does not neutralize terminal control characters.
+   `legix-core` does not neutralize terminal control characters.
    Security-sensitive terminal output can render untrusted object data without
    sufficient escaping. Start by auditing every command path that prints names,
    object data, refs, config values, or remote-provided strings, then add a
@@ -52,7 +52,7 @@ Priority key:
    then make mode reconciliation explicit for reused files.
 
 5. [#1783](https://github.com/GitoxideLabs/gitoxide/issues/1783) -
-   Delayed process filters suppress executable bits in `gix clone`.
+   Delayed process filters suppress executable bits in `legix clone`.
    Files that should be checked out as executable are left non-executable when
    a long-running smudge filter supports delayed output. Add a fixture with a
    delayed process filter and assert the final mode after delayed checkout.
@@ -85,7 +85,7 @@ Priority key:
    delta resolution with Git behavior.
 
 3. [#1096](https://github.com/GitoxideLabs/gitoxide/issues/1096) -
-   `gix` fails to decode a tree object that Git accepts.
+   `legix` fails to decode a tree object that Git accepts.
    This is a compatibility failure in object decoding. Preserve the reported
    tree object as a fixture and decide whether the decoder needs to accept a
    Git-compatible edge case or improve diagnostics.
@@ -111,7 +111,7 @@ Priority key:
 
 7. [#2052](https://github.com/GitoxideLabs/gitoxide/issues/2052) -
    Worktree path resolves incorrectly for a bare repository with submodules.
-   `gix status` resolves a submodule under `/home/...` without the username and
+   `legix status` resolves a submodule under `/home/...` without the username and
    fails. Reproduce with the dotfiles-style bare setup and trace worktree root
    derivation for submodules.
 
@@ -156,20 +156,20 @@ Priority key:
     layer. Gate the option by libcurl version/capability or make it optional.
 
 15. [#1353](https://github.com/GitoxideLabs/gitoxide/issues/1353) -
-    `gix clone` ignores global `core.symlinks` on Windows.
+    `legix clone` ignores global `core.symlinks` on Windows.
     Windows checkout should respect global symlink capability/configuration.
     Add a Windows regression with `core.symlinks=false` and compare Git's
     checkout result.
 
 16. [#1119](https://github.com/GitoxideLabs/gitoxide/issues/1119) -
-    `gix-url` does not compile with the `url` version it specifies.
+    `legix-url` does not compile with the `url` version it specifies.
     Minimal-version builds fail because the crate uses APIs newer than its
     declared lower bound. Raise the dependency floor or avoid the newer API.
 
 ## P2 - Correctness and Git Parity
 
 1. [#2490](https://github.com/GitoxideLabs/gitoxide/issues/2490) -
-   `gix status --submodules all` falsely reports submodules dirty when they
+   `legix status --submodules all` falsely reports submodules dirty when they
    only contain empty untracked directories.
    Git ignores empty directories. Add the reported submodule fixture and make
    untracked-directory detection require files.
@@ -207,27 +207,27 @@ Priority key:
    for `host:path`, `host:/path`, `host:~/path`, and `host:~user/path`.
 
 8. [#1868](https://github.com/GitoxideLabs/gitoxide/issues/1868) -
-   `gix-command` on Windows can run shell commands outside POSIX mode.
+   `legix-command` on Windows can run shell commands outside POSIX mode.
    Git for Windows shims may invoke `bash.exe` instead of `sh.exe` semantics.
    Detect or invoke the POSIX-mode shell path deliberately.
 
 9. [#1869](https://github.com/GitoxideLabs/gitoxide/issues/1869) -
-   `gix-command` on Unix can choose non-POSIX `/bin/sh`.
+   `legix-command` on Unix can choose non-POSIX `/bin/sh`.
    POSIX-compatible `sh` is not guaranteed to be `/bin/sh`. Consider resolving
    `sh` through the standard path or `getconf PATH` on affected platforms.
 
 10. [#1842](https://github.com/GitoxideLabs/gitoxide/issues/1842) -
-    `gix-command` passes `--` as `$0` to `sh -c`.
+    `legix-command` passes `--` as `$0` to `sh -c`.
     This produces confusing shell diagnostics. Pass an informative shell name
     or command label as `$0` and add a test for error output.
 
 11. [#1615](https://github.com/GitoxideLabs/gitoxide/issues/1615) -
-    `gix-trace` tracing level set by subscriber is not always respected.
+    `legix-trace` tracing level set by subscriber is not always respected.
     Audit where trace level filtering is overridden or cached and add a
     subscriber-driven filtering test.
 
 12. [#1649](https://github.com/GitoxideLabs/gitoxide/issues/1649) -
-    `gix worktree list` mixes branch names and worktree names in similar rows.
+    `legix worktree list` mixes branch names and worktree names in similar rows.
     The output is easy to misread and differs from Git semantics. Clarify row
     labels or align with Git's worktree-list output.
 
@@ -250,18 +250,18 @@ Priority key:
    engaged.
 
 2. [#2024](https://github.com/GitoxideLabs/gitoxide/issues/2024) -
-   Pack size regressed by about 50 percent from `gix-pack` 0.58 to 0.59.
+   Pack size regressed by about 50 percent from `legix-pack` 0.58 to 0.59.
    Use the provided wide-tree reproduction to bisect pack generation changes
    and add a size regression test with a stable threshold.
 
 3. [#2296](https://github.com/GitoxideLabs/gitoxide/issues/2296) -
-   `gix status` is slow on Windows.
+   `legix status` is slow on Windows.
    Direct `lstat` checks scale poorly. Investigate a Windows directory-listing
    stat cache shared across status traversal workers.
 
 4. [#1771](https://github.com/GitoxideLabs/gitoxide/issues/1771) -
-   `gix status` performance is inconsistent on clean trees.
-   A Linux tree can be much slower with `gix status` than with the previous
+   `legix status` performance is inconsistent on clean trees.
+   A Linux tree can be much slower with `legix status` than with the previous
    tool. Reproduce on the reported large repositories and profile unchanged and
    untracked paths separately.
 
@@ -362,6 +362,6 @@ Priority key:
    #2210, and #1055.
 5. Work through status/worktree correctness: #2490, #2052, #1912, #2067.
 6. Batch shell-command issues #1868, #1869, and #1842 since they share the
-   `gix-command` execution model.
+   `legix-command` execution model.
 7. Dedicate a separate pass to platform test failures: #1358, #1890, #1894,
    #1622, #2548, and #2259.

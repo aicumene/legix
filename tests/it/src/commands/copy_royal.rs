@@ -2,7 +2,7 @@ pub(super) mod function {
     use std::path::{Path, PathBuf};
 
     use anyhow::Context;
-    use gix::{fs::Stack, pathspec::Pattern};
+    use legix::{fs::Stack, pathspec::Pattern};
 
     pub fn copy_royal(
         dry_run: bool,
@@ -11,7 +11,7 @@ pub(super) mod function {
         patterns: Vec<Pattern>,
     ) -> anyhow::Result<()> {
         let prefix = if dry_run { "WOULD" } else { "Will" };
-        let repo = gix::open(worktree_dir)?;
+        let repo = legix::open(worktree_dir)?;
         let index = repo.index()?;
         let mut specs = repo.pathspec(
             true,
@@ -19,15 +19,15 @@ pub(super) mod function {
             patterns.into_iter().map(|p| p.to_bstring()),
             true,
             &index,
-            gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
+            legix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
         )?;
         let mut create_dir = CreateDir { dry_run };
-        let mut stack = gix::fs::Stack::new(destination_dir);
+        let mut stack = legix::fs::Stack::new(destination_dir);
         for (rela_path, _entry) in specs
             .index_entries_with_paths(&index)
             .context("Didn't find a single entry to copy")?
         {
-            let rela_path = gix::path::from_bstr(rela_path);
+            let rela_path = legix::path::from_bstr(rela_path);
             let src = worktree_dir.join(&rela_path);
             stack.make_relative_path_current(&*rela_path, &mut create_dir)?;
             let dst = stack.current();
@@ -96,7 +96,7 @@ pub(super) mod function {
         dry_run: bool,
     }
 
-    impl gix::fs::stack::Delegate for CreateDir {
+    impl legix::fs::stack::Delegate for CreateDir {
         fn push_directory(&mut self, stack: &Stack) -> std::io::Result<()> {
             if !self.dry_run && !stack.current().is_dir() {
                 std::fs::create_dir(stack.current())?;

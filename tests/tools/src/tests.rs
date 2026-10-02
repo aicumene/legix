@@ -45,7 +45,7 @@ fn configure_command_clears_external_config() {
         ("1", "'foo.bar=inherited'"),
         ("invalid ambient count", "invalid ambient parameters"),
     ] {
-        let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
+        let mut cmd = std::process::Command::new(legix_path::env::exe_invocation());
         cmd.env("GIT_CONFIG_SYSTEM", SCOPE_ENV_VALUE);
         cmd.env("GIT_CONFIG_GLOBAL", SCOPE_ENV_VALUE);
         cmd.env("GIT_CONFIG", SCOPE_ENV_VALUE);
@@ -55,7 +55,7 @@ fn configure_command_clears_external_config() {
         cmd.env("GIT_CONFIG_VALUE_0", "inherited");
         configure_command(
             &mut cmd,
-            gix_hash::Kind::default(),
+            legix_hash::Kind::default(),
             ["config", "-l", "--show-origin"],
             temp.path(),
         );
@@ -92,7 +92,7 @@ fn configure_command_keeps_destructive_git_operations_in_the_fixture() -> Result
     let outside_index = std::fs::read(outside.path().join(".git/index"))?;
     let outside_head = git(outside.path(), "rev-parse HEAD")?;
 
-    let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
+    let mut cmd = std::process::Command::new(legix_path::env::exe_invocation());
     cmd.env("GIT_DIR", outside.path().join(".git"))
         .env("GIT_WORK_TREE", outside.path())
         .env("GIT_COMMON_DIR", outside.path().join(".git"))
@@ -169,10 +169,10 @@ fn configure_command_clears_external_git_templates() -> Result {
     std::fs::create_dir(&template)?;
     std::fs::write(template.join("template-marker"), "external template")?;
 
-    let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
+    let mut cmd = std::process::Command::new(legix_path::env::exe_invocation());
     cmd.env("GIT_TEMPLATE_DIR", &template);
     let output =
-        configure_command(&mut cmd, gix_hash::Kind::default(), ["init", "-q", "repo"], temp.path()).output()?;
+        configure_command(&mut cmd, legix_hash::Kind::default(), ["init", "-q", "repo"], temp.path()).output()?;
     assert!(output.status.success(), "git init succeeds: {output:?}");
     assert!(
         !temp.path().join("repo/.git/template-marker").exists(),
@@ -218,9 +218,9 @@ fn a_path_resolved_selected_git_does_not_override_path() {
 #[test]
 fn configure_command_overrides_xdg_config_home() {
     let temp = tempfile::TempDir::new().expect("can create temp dir");
-    let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
+    let mut cmd = std::process::Command::new(legix_path::env::exe_invocation());
     cmd.env("XDG_CONFIG_HOME", temp.path().join("external-config"));
-    configure_command(&mut cmd, gix_hash::Kind::default(), ["--version"], temp.path());
+    configure_command(&mut cmd, legix_hash::Kind::default(), ["--version"], temp.path());
 
     let xdg_config_home = cmd
         .get_envs()
@@ -413,8 +413,8 @@ fn split_git_arguments_rejects_unterminated_quotes() {
 #[test]
 #[cfg(feature = "sha1")]
 fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
-    let first = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
-    let second = gix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba").expect("valid SHA1");
+    let first = legix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
+    let second = legix_hash::ObjectId::from_hex(b"496d6428b9cf92981dc9495211e6e1120fb6f2ba").expect("valid SHA1");
     let (snapshot, ids) = normalize_debug_snapshot(&vec![first, first, second, first]);
 
     assert_eq!(ids, vec![first, second]);
@@ -432,8 +432,8 @@ fn normalize_debug_snapshot_returns_replaced_ids_by_placeholder_index() {
 #[test]
 #[cfg(all(feature = "sha1", feature = "sha256"))]
 fn normalize_hashes_replaces_raw_object_ids() {
-    let sha1 = gix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
-    let sha256 = gix_hash::ObjectId::from_hex(b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
+    let sha1 = legix_hash::ObjectId::from_hex(b"e69de29bb2d1d6434b8b29ae775ad8c2e48c5391").expect("valid SHA1");
+    let sha256 = legix_hash::ObjectId::from_hex(b"473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813")
         .expect("valid SHA256");
 
     let (snapshot, ids) = normalize_hashes(
@@ -524,7 +524,7 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
         None,
         &fixture_base,
         "scripted",
-        Some(gix_hash::Kind::default()),
+        Some(legix_hash::Kind::default()),
         &1234,
         None,
     );
@@ -532,7 +532,7 @@ fn archive_required_fixtures_use_a_separate_cache_directory() {
         None,
         &fixture_base,
         "scripted",
-        Some(gix_hash::Kind::default()),
+        Some(legix_hash::Kind::default()),
         &1234,
         Some("archive"),
     );
@@ -734,7 +734,7 @@ fn version_incompatible_writable_fixtures_use_required_archives_in_both_creation
 
 #[test]
 fn hash_kinds_are_classified_independently_of_gix_testtools_features() {
-    for kind in gix_hash::Kind::all() {
+    for kind in legix_hash::Kind::all() {
         assert_eq!(is_sha1(*kind), kind.to_string() == "sha1");
     }
 }
@@ -778,7 +778,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         None,
         &fixture_base,
         "scripted",
-        Some(gix_hash::Kind::default()),
+        Some(legix_hash::Kind::default()),
         &1234,
         None,
     );
@@ -786,7 +786,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         None,
         &fixture_base,
         "scripted",
-        Some(gix_hash::Kind::default()),
+        Some(legix_hash::Kind::default()),
         &1234,
         Some("archive"),
     );
@@ -794,7 +794,7 @@ fn required_archives_use_a_dedicated_cache_directory() {
         None,
         &fixture_base,
         "scripted",
-        Some(gix_hash::Kind::default()),
+        Some(legix_hash::Kind::default()),
         &1234,
         Some("required-archive"),
     );

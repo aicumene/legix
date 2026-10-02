@@ -1,6 +1,6 @@
 use std::env;
 
-use gix_testtools::Env;
+use legix_testtools::Env;
 use serial_test::serial;
 
 // We rely on these not already existing, to test `Env` without using or rewriting it.
@@ -155,7 +155,7 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn policy_and_tracked_restoration() -> gix_testtools::Result {
+    fn policy_and_tracked_restoration() -> legix_testtools::Result {
         let _restore = RestoreEnvironment::new();
         let disposable = tempfile::tempdir()?;
         let unused = disposable.path().join("unused").to_string_lossy().into_owned();
@@ -182,8 +182,8 @@ mod isolate_git_environment {
 
         // Inspect command overrides without spawning any subprocess, Git or otherwise.
         let mut command = Command::new(env::current_exe()?);
-        gix_testtools::configure_git_environment(&mut command, disposable.path());
-        let guard = gix_testtools::isolate_git_environment()?;
+        legix_testtools::configure_git_environment(&mut command, disposable.path());
+        let guard = legix_testtools::isolate_git_environment()?;
         let mut expected = before.clone();
         let mut actual = snapshot();
         for (name, value) in command.get_envs() {
@@ -246,19 +246,19 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn git_commands_do_not_inherit_later_environment_overrides() -> gix_testtools::Result {
-        let _environment = gix_testtools::isolate_git_environment()?;
+    fn git_commands_do_not_inherit_later_environment_overrides() -> legix_testtools::Result {
+        let _environment = legix_testtools::isolate_git_environment()?;
         let repo = tempfile::tempdir()?;
         let outside = tempfile::tempdir()?;
-        gix_testtools::git(repo.path(), "init -q")?;
-        gix_testtools::git(outside.path(), "init -q")?;
+        legix_testtools::git(repo.path(), "init -q")?;
+        legix_testtools::git(outside.path(), "init -q")?;
         for (directory, value) in [(repo.path(), "intended"), (outside.path(), "outside")] {
             let mut config = std::fs::OpenOptions::new()
                 .append(true)
                 .open(directory.join(".git/config"))?;
             writeln!(config, "\n[foo]\n\tbar = {value}")?;
         }
-        let mut command = gix_testtools::git_command(repo.path());
+        let mut command = legix_testtools::git_command(repo.path());
         command.args(["config", "--local", "--get", "foo.bar"]);
 
         let _environment = _environment.set("GIT_DIR", outside.path().join(".git").to_string_lossy());
@@ -287,19 +287,19 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn nested_guards_restore_the_enclosing_scope() -> gix_testtools::Result {
+    fn nested_guards_restore_the_enclosing_scope() -> legix_testtools::Result {
         let _restore = RestoreEnvironment::new();
         let _env = Env::new().set(VAR1, "original").set(VAR2, "").unset(VAR3);
         let before = snapshot();
         let name = VAR1.to_owned();
-        let outer = gix_testtools::isolate_git_environment()?
+        let outer = legix_testtools::isolate_git_environment()?
             .set(&name, "outer")
             .unset(VAR2)
             .set("GIT_FUTURE_TEST_ENV_VAR", "outer override");
         let outer_state = snapshot();
         let outer_xdg = env::var_os("XDG_CONFIG_HOME");
         {
-            let _inner = gix_testtools::isolate_git_environment()?
+            let _inner = legix_testtools::isolate_git_environment()?
                 .unset(VAR1)
                 .set(VAR2, "inner")
                 .set(VAR3, "inner addition");
@@ -330,9 +330,9 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn early_and_error_returns_restore_the_environment() -> gix_testtools::Result {
-        fn leave_scope(fail: bool) -> gix_testtools::Result {
-            let _guard = gix_testtools::isolate_git_environment()?
+    fn early_and_error_returns_restore_the_environment() -> legix_testtools::Result {
+        fn leave_scope(fail: bool) -> legix_testtools::Result {
+            let _guard = legix_testtools::isolate_git_environment()?
                 .set(VAR1, "changed before returning")
                 .unset(VAR2)
                 .set(VAR3, "added before returning");
@@ -365,13 +365,13 @@ mod isolate_git_environment {
 
     #[test]
     #[serial]
-    fn panic_unwinding_restores_the_environment() -> gix_testtools::Result {
+    fn panic_unwinding_restores_the_environment() -> legix_testtools::Result {
         let _restore = RestoreEnvironment::new();
         let _env = Env::new().set(VAR1, "original").set(VAR2, "").unset(VAR3);
         let before = snapshot();
         let mut entered = false;
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> gix_testtools::Result {
-            let _guard = gix_testtools::isolate_git_environment()?
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> legix_testtools::Result {
+            let _guard = legix_testtools::isolate_git_environment()?
                 .set(VAR1, "changed before panicking")
                 .unset(VAR2)
                 .set(VAR3, "added before panicking");
@@ -387,7 +387,7 @@ mod isolate_git_environment {
     #[cfg(unix)]
     #[test]
     #[serial]
-    fn non_utf8_names_and_values_are_preserved() -> gix_testtools::Result {
+    fn non_utf8_names_and_values_are_preserved() -> legix_testtools::Result {
         use std::os::unix::ffi::OsStringExt;
 
         let _restore = RestoreEnvironment::new();
@@ -404,7 +404,7 @@ mod isolate_git_environment {
         }
         let before = snapshot();
         {
-            let _guard = gix_testtools::isolate_git_environment()?;
+            let _guard = legix_testtools::isolate_git_environment()?;
             assert_eq!(
                 env::var_os(&name),
                 Some(value.clone()),

@@ -1,10 +1,10 @@
-use gix_testtools::{Creation, Result};
+use legix_testtools::{Creation, Result};
 
 const SCRIPT_NAME: &str = "make_basic.sh";
 
 #[test]
 fn scripted_fixture_read_only_with_post_returns_value() -> Result {
-    let (dir, value) = gix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 1, |fixture| {
+    let (dir, value) = legix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 1, |fixture| {
         let dir = fixture.path();
         // The script should have already created these files
         assert!(dir.join("script_file.txt").exists());
@@ -26,7 +26,7 @@ fn scripted_fixture_read_only_with_post_returns_value() -> Result {
 
 #[test]
 fn scripted_fixture_writable_with_post_returns_value() -> Result {
-    let (tmp, value) = gix_testtools::scripted_fixture_writable_with_args_with_post(
+    let (tmp, value) = legix_testtools::scripted_fixture_writable_with_args_with_post(
         SCRIPT_NAME,
         None::<String>,
         Creation::Execute,
@@ -58,7 +58,7 @@ fn scripted_fixture_with_post_can_return_complex_types() -> Result {
     }
 
     // Use version 2 to force recreation (different from other tests using this script)
-    let (dir, info) = gix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 2, |fixture| {
+    let (dir, info) = legix_testtools::scripted_fixture_read_only_with_post(SCRIPT_NAME, 2, |fixture| {
         let dir = fixture.path();
         Ok(FixtureInfo {
             file_count: std::fs::read_dir(dir)?.count(),
@@ -81,7 +81,7 @@ fn scripted_fixture_with_post_can_return_complex_types() -> Result {
 
 #[test]
 fn version_compatible_writable_fixtures_support_both_creation_modes() -> Result {
-    let copied = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
+    let copied = legix_testtools::scripted_fixture_writable_with_args_with_git_version(
         SCRIPT_NAME,
         ["version-compatible-copy"],
         Creation::CopyFromReadOnly,
@@ -91,7 +91,7 @@ fn version_compatible_writable_fixtures_support_both_creation_modes() -> Result 
     assert!(copied.path().join("script_file.txt").is_file());
     std::fs::write(copied.path().join("writable"), b"yes")?;
 
-    let executed = gix_testtools::scripted_fixture_writable_with_args_with_git_version(
+    let executed = legix_testtools::scripted_fixture_writable_with_args_with_git_version(
         SCRIPT_NAME,
         ["version-compatible-execute"],
         Creation::Execute,
@@ -107,7 +107,7 @@ fn version_compatible_writable_fixtures_support_both_creation_modes() -> Result 
 #[test]
 fn version_incompatible_writable_fixtures_never_run_the_script() -> Result {
     assert!(
-        gix_testtools::scripted_fixture_writable_with_args_with_git_version(
+        legix_testtools::scripted_fixture_writable_with_args_with_git_version(
             SCRIPT_NAME,
             ["version-incompatible-copy-without-archive"],
             Creation::CopyFromReadOnly,
@@ -117,7 +117,7 @@ fn version_incompatible_writable_fixtures_never_run_the_script() -> Result {
         "copy mode reports an unavailable required archive"
     );
     assert!(
-        gix_testtools::scripted_fixture_writable_with_args_with_git_version(
+        legix_testtools::scripted_fixture_writable_with_args_with_git_version(
             SCRIPT_NAME,
             ["version-incompatible-execute-without-archive"],
             Creation::Execute,
@@ -128,7 +128,7 @@ fn version_incompatible_writable_fixtures_never_run_the_script() -> Result {
     );
 
     let mut post_process_was_called = false;
-    let fixture = gix_testtools::scripted_fixture_writable_with_args_with_post_with_git_version(
+    let fixture = legix_testtools::scripted_fixture_writable_with_args_with_post_with_git_version(
         SCRIPT_NAME,
         ["version-incompatible-post-process-without-archive"],
         Creation::Execute,

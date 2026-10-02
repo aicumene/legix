@@ -2,7 +2,7 @@
 
 #[cfg(feature = "pretty-cli")]
 fn main() -> anyhow::Result<()> {
-    gitoxide::plumbing::main()
+    legix_cli::plumbing::main()
 }
 
 #[cfg(not(feature = "pretty-cli"))]

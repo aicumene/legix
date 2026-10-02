@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use clap_complete::Shell;
-use gitoxide_core as core;
-use gix::bstr::BString;
+use legix_core as core;
+use legix::bstr::BString;
 
 use crate::shared::{AsRange, AsTime};
 
 #[derive(Debug, clap::Parser)]
-#[clap(name = "gix", about = "The git underworld", version = option_env!("GIX_VERSION"))]
+#[clap(name = "legix", about = "The git underworld", version = option_env!("GIX_VERSION"))]
 #[clap(subcommand_required = true)]
 #[clap(arg_required_else_help = true)]
 pub struct Args {
@@ -71,8 +71,8 @@ pub struct Args {
     pub format: core::OutputFormat,
 
     /// The object format to assume when reading files that don't inherently know about it, or when writing files.
-    #[clap(long, default_value_t = gix::hash::Kind::default(), value_parser = crate::shared::AsHashKind)]
-    pub object_hash: gix::hash::Kind,
+    #[clap(long, default_value_t = legix::hash::Kind::default(), value_parser = crate::shared::AsHashKind)]
+    pub object_hash: legix::hash::Kind,
 
     #[clap(subcommand)]
     pub cmd: Subcommands,
@@ -171,7 +171,7 @@ pub enum Subcommands {
     /// Interactively browse commits and their graph.
     #[cfg(feature = "tix")]
     #[clap(visible_alias = "tui", visible_alias = "interactive", visible_alias = "i")]
-    Tix(gix_tix::command::Platform),
+    Tix(legix_tix::command::Platform),
     Worktree(worktree::Platform),
     /// Subcommands that need no Git repository to run.
     #[clap(subcommand)]
@@ -188,7 +188,7 @@ pub enum Subcommands {
         ranges: Vec<std::ops::RangeInclusive<u32>>,
         /// Don't consider commits before the given date.
         #[clap(long,  value_parser=AsTime, value_name = "DATE")]
-        since: Option<gix::date::Time>,
+        since: Option<legix::date::Time>,
     },
     /// Generate shell completions to stdout or a directory.
     #[clap(visible_alias = "generate-completions", visible_alias = "shell-completions")]
@@ -268,7 +268,7 @@ pub mod branch {
 }
 
 pub mod status {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::{CheckPathSpec, ParseRenameFraction};
 
@@ -295,7 +295,7 @@ pub mod status {
         /// Simplification will not happen in this mode.
         Matching,
         // TODO: figure out how to implement traditional, which right now can't be done as it requires ignored folders
-        //       to be fully expanded. This should probably be implemented in `gix_dir` which then simply works by not
+        //       to be fully expanded. This should probably be implemented in `legix_dir` which then simply works by not
         //       allowing to ignore directories, naturally traversing the entire content.
     }
 
@@ -350,7 +350,7 @@ pub mod status {
 }
 
 pub mod dirwalk {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::CheckPathSpec;
 
@@ -447,7 +447,7 @@ pub mod corpus {
 }
 
 pub mod merge {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
     pub enum ResolveWith {
@@ -459,12 +459,12 @@ pub mod merge {
         Theirs,
     }
 
-    impl From<ResolveWith> for gix::merge::blob::builtin_driver::text::Conflict {
+    impl From<ResolveWith> for legix::merge::blob::builtin_driver::text::Conflict {
         fn from(value: ResolveWith) -> Self {
             match value {
-                ResolveWith::Union => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithUnion,
-                ResolveWith::Ours => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithOurs,
-                ResolveWith::Theirs => gix::merge::blob::builtin_driver::text::Conflict::ResolveWithTheirs,
+                ResolveWith::Union => legix::merge::blob::builtin_driver::text::Conflict::ResolveWithUnion,
+                ResolveWith::Ours => legix::merge::blob::builtin_driver::text::Conflict::ResolveWithOurs,
+                ResolveWith::Theirs => legix::merge::blob::builtin_driver::text::Conflict::ResolveWithTheirs,
             }
         }
     }
@@ -485,20 +485,20 @@ pub mod merge {
         Ours,
     }
 
-    impl From<FileFavor> for gix::merge::tree::FileFavor {
+    impl From<FileFavor> for legix::merge::tree::FileFavor {
         fn from(value: FileFavor) -> Self {
             match value {
-                FileFavor::Ours => gix::merge::tree::FileFavor::Ours,
-                FileFavor::Theirs => gix::merge::tree::FileFavor::Theirs,
+                FileFavor::Ours => legix::merge::tree::FileFavor::Ours,
+                FileFavor::Theirs => legix::merge::tree::FileFavor::Theirs,
             }
         }
     }
 
-    impl From<TreeFavor> for gix::merge::tree::TreeFavor {
+    impl From<TreeFavor> for legix::merge::tree::TreeFavor {
         fn from(value: TreeFavor) -> Self {
             match value {
-                TreeFavor::Ancestor => gix::merge::tree::TreeFavor::Ancestor,
-                TreeFavor::Ours => gix::merge::tree::TreeFavor::Ours,
+                TreeFavor::Ancestor => legix::merge::tree::TreeFavor::Ancestor,
+                TreeFavor::Ours => legix::merge::tree::TreeFavor::Ours,
             }
         }
     }
@@ -585,7 +585,7 @@ pub mod merge {
 }
 
 pub mod diff {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     /// Print all changes between two objects.
     #[derive(Debug, clap::Parser)]
@@ -618,7 +618,7 @@ pub mod diff {
 }
 
 pub mod log {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     /// List all commits in a repository, optionally limited to those that change a given path.
     #[derive(Debug, clap::Parser)]
@@ -632,7 +632,7 @@ pub mod log {
 pub mod config {
     use std::path::PathBuf;
 
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     /// Print all entries in a configuration file or access other sub-commands.
     #[derive(Debug, clap::Parser)]
@@ -677,7 +677,7 @@ pub mod config {
 pub mod fetch {
     use std::num::NonZeroU32;
 
-    use gix::remote::fetch::Shallow;
+    use legix::remote::fetch::Shallow;
 
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
@@ -708,7 +708,7 @@ pub mod fetch {
 
         /// Override the built-in and configured ref-specs with one or more of the given ones.
         #[clap(value_parser = crate::shared::AsBString)]
-        pub ref_spec: Vec<gix::bstr::BString>,
+        pub ref_spec: Vec<legix::bstr::BString>,
     }
 
     #[derive(Debug, clap::Parser)]
@@ -723,11 +723,11 @@ pub mod fetch {
 
         /// Cutoff all history past the given date. Can be combined with shallow-exclude.
         #[clap(long, help_heading = Some("SHALLOW"), value_parser = crate::shared::AsTime, value_name = "DATE", conflicts_with_all = ["depth", "deepen", "unshallow"])]
-        pub shallow_since: Option<gix::date::Time>,
+        pub shallow_since: Option<legix::date::Time>,
 
         /// Cutoff all history past the tag-name or ref-name. Can be combined with shallow-since.
         #[clap(long, help_heading = Some("SHALLOW"), value_parser = crate::shared::AsPartialRefName, value_name = "REF_NAME", conflicts_with_all = ["depth", "deepen", "unshallow"])]
-        pub shallow_exclude: Vec<gix::refs::PartialName>,
+        pub shallow_exclude: Vec<legix::refs::PartialName>,
 
         /// Remove the shallow boundary and fetch the entire history available on the remote.
         #[clap(long, help_heading = Some("SHALLOW"), conflicts_with_all = ["shallow_since", "shallow_exclude", "depth", "deepen"])]
@@ -760,7 +760,7 @@ pub mod fetch {
 pub mod clone {
     use std::{ffi::OsString, num::NonZeroU32, path::PathBuf};
 
-    use gix::remote::fetch::Shallow;
+    use legix::remote::fetch::Shallow;
 
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
@@ -789,11 +789,11 @@ pub mod clone {
             value_name = "REF_NAME",
             conflicts_with = "revision"
         )]
-        pub ref_name: Option<gix::refs::PartialName>,
+        pub ref_name: Option<legix::refs::PartialName>,
 
         /// Fetch only this full reference or object ID and check it out with a detached HEAD.
         #[clap(long, value_parser = crate::shared::AsBString, value_name = "REVISION")]
-        pub revision: Option<gix::bstr::BString>,
+        pub revision: Option<legix::bstr::BString>,
 
         /// The directory to initialize with the new repository and to which all data should be written.
         pub directory: Option<PathBuf>,
@@ -807,11 +807,11 @@ pub mod clone {
 
         /// Cutoff all history past the given date. Can be combined with shallow-exclude.
         #[clap(long, help_heading = Some("SHALLOW"), value_parser = crate::shared::AsTime, value_name = "DATE")]
-        pub shallow_since: Option<gix::date::Time>,
+        pub shallow_since: Option<legix::date::Time>,
 
         /// Cutoff all history past the tag-name or ref-name. Can be combined with shallow-since.
         #[clap(long, help_heading = Some("SHALLOW"), value_parser = crate::shared::AsPartialRefName, value_name = "REF_NAME")]
-        pub shallow_exclude: Vec<gix::refs::PartialName>,
+        pub shallow_exclude: Vec<legix::refs::PartialName>,
     }
 
     impl From<ShallowOptions> for Shallow {
@@ -872,13 +872,13 @@ pub mod remote {
             show_unmapped_remote_refs: bool,
             /// Override the built-in and configured ref-specs with one or more of the given ones.
             #[clap(value_parser = crate::shared::AsBString)]
-            ref_spec: Vec<gix::bstr::BString>,
+            ref_spec: Vec<legix::bstr::BString>,
         },
     }
 }
 
 pub mod mailmap {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
@@ -894,7 +894,7 @@ pub mod mailmap {
 
 #[cfg(feature = "gitoxide-core-tools-clean")]
 pub mod clean {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::CheckPathSpec;
 
@@ -905,11 +905,11 @@ pub mod clean {
         NonBare,
     }
 
-    impl From<FindRepository> for gitoxide_core::repository::clean::FindRepository {
+    impl From<FindRepository> for legix_core::repository::clean::FindRepository {
         fn from(value: FindRepository) -> Self {
             match value {
-                FindRepository::All => gitoxide_core::repository::clean::FindRepository::All,
-                FindRepository::NonBare => gitoxide_core::repository::clean::FindRepository::NonBare,
+                FindRepository::All => legix_core::repository::clean::FindRepository::All,
+                FindRepository::NonBare => legix_core::repository::clean::FindRepository::NonBare,
             }
         }
     }
@@ -1194,7 +1194,7 @@ pub mod revision {
 }
 
 pub mod attributes {
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::CheckPathSpec;
 
@@ -1225,7 +1225,7 @@ pub mod attributes {
 pub mod exclude {
     use std::ffi::OsString;
 
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::AsBString;
 
@@ -1256,7 +1256,7 @@ pub mod exclude {
 pub mod index {
     use std::path::PathBuf;
 
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     use crate::shared::CheckPathSpec;
 

@@ -1,6 +1,6 @@
 ##### The year in numbers
 
-And 365 days later as of 2024-12-31, we are counting **178,156 SLOC, up by 37,151**, which is 108% *of the year before* (➡*OTYB*) in **15,271 commits up by 2,269** and 75%OTYB. There are **78 crates (up by 16)** and 2 binaries, with `ein` and `gix` as part of `gitoxide`. There are **151 unique authors (up by 46 and 96%OTYB)**. This means ~102 lines per day in ~6 commits each day. On GitHub there are **9279 stars (up by 2,013 which is 96%OTYB)** for ~5.5 stars per day.
+And 365 days later as of 2024-12-31, we are counting **178,156 SLOC, up by 37,151**, which is 108% *of the year before* (➡*OTYB*) in **15,271 commits up by 2,269** and 75%OTYB. There are **78 crates (up by 16)** and 2 binaries, with `ein` and `legix` as part of `gitoxide`. There are **151 unique authors (up by 46 and 96%OTYB)**. This means ~102 lines per day in ~6 commits each day. On GitHub there are **9279 stars (up by 2,013 which is 96%OTYB)** for ~5.5 stars per day.
 
 The tool invocation `ein tool estimate-hours` now rates the project cost at **10629 hours (up by 1893 which is 99%OTYB) or ~1329 x 8 hour working days**, for an average working time of **5.18 hours in the past 365 days**.
 
@@ -12,7 +12,7 @@ Thus far, **I have spent the last 1719 days to getting `gitoxide` off the ground
 
 ### Plans and reality
 
-When looking at the "What was planned for 2023" section in the [last year's retrospective](https://github.com/GitoxideLabs/gitoxide/discussions/1223) it's astonishing that I seemed to have accomplished none of the items left or planned, with the exception that `gix status` is nearly ready at the time of this writing.
+When looking at the "What was planned for 2023" section in the [last year's retrospective](https://github.com/GitoxideLabs/gitoxide/discussions/1223) it's astonishing that I seemed to have accomplished none of the items left or planned, with the exception that `legix status` is nearly ready at the time of this writing.
 
 Then again, none of the other unfulfilled items on the plan were actually attempted.
 
@@ -26,13 +26,13 @@ This is particularly useful if one were to produce trees that make sense from *o
 
 A smaller but no less important feature that powers all of that is the new tree-editor. It supports sparse immediate edits to later write out only the trees that changed for maximum efficiency.
 
-#### `gix clean` with precious files
+#### `legix clean` with precious files
 
-Definitely my personal favorite and a tool I use often if `gix clean` with its awareness of [precious files](https://github.com/GitoxideLabs/gitoxide/discussions/1308). These files are not to be tracked, but also not disposable, and a great way to keep your editor-configuration safe.
+Definitely my personal favorite and a tool I use often if `legix clean` with its awareness of [precious files](https://github.com/GitoxideLabs/gitoxide/discussions/1308). These files are not to be tracked, but also not disposable, and a great way to keep your editor-configuration safe.
 
-It's powered by the new `gix-dirwalk` crate which helps to classify entire directories, and is the basis for `gix status` and future `gix add` as well.
+It's powered by the new `gix-dirwalk` crate which helps to classify entire directories, and is the basis for `legix status` and future `legix add` as well.
 
-#### `gix status` (*nearly there*)
+#### `legix status` (*nearly there*)
 
 It has been such a long time in the making, and despite best attempts (i.e. my really trying a week before the year's end), it's still not quite there. But what's there is very promising as it seems to be 1.85 faster than Git on the WebKit repository already. Git is very optimised, but it's not as parallel as it could be which is where `gitoxide` has its major gains. The directory walk to find untracked files and the index-refresh are run in parallel, something that ultimately is faster even though Git would otherwise be a bit faster if run sequentially.
 
@@ -40,13 +40,13 @@ As a special feature, `gitoxide` implements the `status` query as iterator which
 
 Of course, the complexity has to go somewhere and `status` as it's implemented now is a multi-layered monster of what seems like essential complexity.
 
-#### A very first `gix blame`
+#### A very first `legix blame`
 
-Thanks to [Christoph Rüßler](https://github.com/cruessler) and his tireless work (*as well as super-human patience with me*) we now have a very first working version of `gix blame`. It works!
+Thanks to [Christoph Rüßler](https://github.com/cruessler) and his tireless work (*as well as super-human patience with me*) we now have a very first working version of `legix blame`. It works!
 
 Early next year we would expect its performance to become comparable to Git as well, which has many more optimizations that really make a difference. With a little luck it has a good chance to be faster as well.
 
-It's well worth mentioning that I think that `gix blame` has to the potential to become the fastest blame implementation available, while being the most suitable for [user interfaces](https://github.com/extrawurst/gitui) as well.
+It's well worth mentioning that I think that `legix blame` has to the potential to become the fastest blame implementation available, while being the most suitable for [user interfaces](https://github.com/extrawurst/gitui) as well.
 
 #### Ephemeral objects and API improvements
 
@@ -107,7 +107,7 @@ I will do my best to do well by you and truly make `gitoxide` the project that m
 
 It's taking me years to finish the integration work and implement all features needed to fully replace `git2` in `cargo`, and yet the `cargo` team stays onboard with this work!
 
-Thanks so much, but… `gix status` is now unstoppably coming, and soon I will get to continue the integration.
+Thanks so much, but… `legix status` is now unstoppably coming, and soon I will get to continue the integration.
 2025 - the year it continues!
 
 #### Thanks Everyone

@@ -29,8 +29,8 @@ debug-small: always ## minimal dependencies, at cost of performance
 
 ##@ Development
 
-gix := $(shell cargo metadata --format-version 1 | jq -r .target_directory)/release/gix
-$(gix): always
+legix := $(shell cargo metadata --format-version 1 | jq -r .target_directory)/release/legix
+$(legix): always
 	cargo build --release --no-default-features --features small
 
 ##@ Testing
@@ -99,20 +99,20 @@ commit_graphs = \
 
 stress: ## Run various algorithms on big repositories
 	$(MAKE) -j3 $(linux_repo) $(rust_repo) release-lean
-	time $(gix) --verbose no-repo pack verify --re-encode $(linux_repo)/objects/pack/*.idx
-	time $(gix) --verbose no-repo pack multi-index -i $(linux_repo)/objects/pack/multi-pack-index create $(linux_repo)/objects/pack/*.idx
-	time $(gix) --verbose no-repo pack verify $(linux_repo)/objects/pack/multi-pack-index
-	rm -Rf out; mkdir out && time $(gix) --verbose no-repo pack index create -p $(linux_repo)/objects/pack/*.pack out/
-	time $(gix) --verbose no-repo pack verify out/*.idx
+	time $(legix) --verbose no-repo pack verify --re-encode $(linux_repo)/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack multi-index -i $(linux_repo)/objects/pack/multi-pack-index create $(linux_repo)/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack verify $(linux_repo)/objects/pack/multi-pack-index
+	rm -Rf out; mkdir out && time $(legix) --verbose no-repo pack index create -p $(linux_repo)/objects/pack/*.pack out/
+	time $(legix) --verbose no-repo pack verify out/*.idx
 
-	time $(gix) --verbose no-repo pack verify --statistics $(rust_repo)/objects/pack/*.idx
-	time $(gix) --verbose no-repo pack verify --algorithm less-memory $(rust_repo)/objects/pack/*.idx
-	time $(gix) --verbose no-repo pack verify --re-encode $(rust_repo)/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack verify --statistics $(rust_repo)/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack verify --algorithm less-memory $(rust_repo)/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack verify --re-encode $(rust_repo)/objects/pack/*.idx
 	# We must ensure there is exactly one pack file for the pack-explode *.idx globs to work.
 	git repack -Ad
-	time $(gix) --verbose no-repo pack explode .git/objects/pack/*.idx
+	time $(legix) --verbose no-repo pack explode .git/objects/pack/*.idx
 
-	rm -Rf delme; mkdir delme && time $(gix) --verbose no-repo pack explode .git/objects/pack/*.idx delme/
+	rm -Rf delme; mkdir delme && time $(legix) --verbose no-repo pack explode .git/objects/pack/*.idx delme/
 
 	$(MAKE) stress-commitgraph
 	$(MAKE) bench-gix-config
@@ -120,16 +120,16 @@ stress: ## Run various algorithms on big repositories
 .PHONY: stress-commitgraph
 stress-commitgraph: release-lean $(commit_graphs)
 	set -x; for path in $(wordlist 2, 999, $^); do \
-		time $(gix) --verbose no-repo commit-graph verify $$path; \
+		time $(legix) --verbose no-repo commit-graph verify $$path; \
 	done
 
 .PHONY: bench-gix-config
 bench-gix-config:
-	cd gix-config && cargo bench
+	cd legix-config && cargo bench
 
 ##@ Maintenance
 
-baseline_asset_dir = gix/src/assets/baseline-init
+baseline_asset_dir = legix/src/assets/baseline-init
 baseline_asset_fixture = tests/fixtures/baseline-init
 
 $(baseline_asset_fixture):
@@ -138,7 +138,7 @@ $(baseline_asset_fixture):
 		sed -i '' -E '/bare = true|ignorecase = true|precomposeunicode = true|filemode = true/d' config && \
 		sed -i '' 's/master/main/g' $$(find . -type f)
 
-transport_fixtures = gix-transport/tests/fixtures
+transport_fixtures = legix-transport/tests/fixtures
 base_url = https://github.com/GitoxideLabs/gitoxide.git
 update-curl-fixtures: ## use curl to fetch raw fixtures for use in unit test. Changes there might break them
 	curl -D - -L "$(base_url)/info/refs?service=git-upload-pack"  > $(transport_fixtures)/v1/http-handshake.response

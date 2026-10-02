@@ -8,7 +8,7 @@ fn bash_program() -> io::Result<()> {
     if !std::io::stdout().is_terminal() {
         eprintln!("warning: `bash-program` subcommand not meant for scripting, format may change");
     }
-    println!("{}", gix_testtools::bash_program().display());
+    println!("{}", legix_testtools::bash_program().display());
     Ok(())
 }
 
@@ -21,7 +21,7 @@ fn mess_in_the_middle(path: PathBuf) -> io::Result<()> {
 
 #[cfg(unix)]
 fn umask() -> io::Result<()> {
-    println!("{:04o}", gix_testtools::umask());
+    println!("{:04o}", legix_testtools::umask());
     Ok(())
 }
 
@@ -35,7 +35,7 @@ fn umask() -> io::Result<()> {
 /// hands every accepted connection to `git daemon --inetd`.
 #[cfg(unix)]
 fn git_daemon(url_file: PathBuf) -> io::Result<()> {
-    let daemon = gix_testtools::spawn_git_daemon(".")?;
+    let daemon = legix_testtools::spawn_git_daemon(".")?;
     fs::write(url_file, format!("{}/\n", daemon.url))?;
     loop {
         std::thread::park();
@@ -50,7 +50,7 @@ fn git_daemon(_url_file: PathBuf) -> io::Result<()> {
     ))
 }
 
-fn main() -> gix_testtools::Result {
+fn main() -> legix_testtools::Result {
     let mut args = std::env::args_os().skip(1);
     let scmd = args.next().expect("sub command");
     match scmd.to_str().ok_or("subcommand is not UTF-8")? {
@@ -58,8 +58,8 @@ fn main() -> gix_testtools::Result {
         "sbom" => sbom::run(args)?,
         "run" => {
             let mut cmd = std::process::Command::new(args.next().ok_or("run requires a program")?);
-            let config_dir = gix_testtools::tempfile::TempDir::new()?;
-            let status = gix_testtools::configure_git_environment(&mut cmd, config_dir.path())
+            let config_dir = legix_testtools::tempfile::TempDir::new()?;
+            let status = legix_testtools::configure_git_environment(&mut cmd, config_dir.path())
                 .args(args)
                 .status()?;
             drop(config_dir);

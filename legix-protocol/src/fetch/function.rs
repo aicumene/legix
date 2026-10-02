@@ -1,0 +1,304 @@
+use std::{
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use legix_error::{Class, ClassificationMarker, ErrorExt, ExnResult, ResultExt, message};
+use legix_features::progress::DynNestedProgress;
+
+use crate::fetch::{
+    Arguments, Context, Negotiate, NegotiateOutcome, Options, Outcome, ProgressId, Shallow, Tags, negotiate,
+};
+#[crate::bisync::only_async]
+use crate::transport::client::async_io::{ExtendedBufRead, HandleProgress, Transport};
+#[crate::bisync::only_sync]
+use crate::transport::client::blocking_io::{ExtendedBufRead, HandleProgress, Transport};
+
+/// Perform one fetch operation, relying on a `transport`.
+/// `negotiate` is used to run the negotiation of objects that should be contained in the pack, *if* one is to be received.
+/// `progress` and `should_interrupt` is passed to all potentially long-running parts of the operation.
+///
+/// `consume_pack(pack_read, progress, interrupt) -> bool` is always called to consume all bytes that are sent by the server, returning `true` if we should assure the pack is read to the end,
+/// or `false` to do nothing. Dropping the reader without reading to EOF (i.e. returning `false`) is an offense to the server, and
+/// `transport` won't be in the correct state to perform additional operations, or indicate the end of operation.
+/// Note that the passed reader blocking as the pack-writing is blocking as well.
+///
+/// The `Context` and `Options` further define parts of this `fetch` operation.
+///
+/// As opposed to a full `git fetch`, this operation does *not*…
+///
+/// * …update local refs
+/// * …end the interaction after the fetch
+///
+/// **Note that the interaction will never be ended**, even on error or failure, leaving it up to the caller to do that, maybe
+/// with the help of [`SendFlushOnDrop`](crate::SendFlushOnDrop) which can wrap `transport`.
+/// Generally, the `transport` is left in a state that allows for more commands to be run.
+///
+/// Return `Ok(None)` if there was nothing to do because all remote refs are at the same state as they are locally,
+/// or there was nothing wanted, or `Ok(Some(outcome))` to inform about all the changes that were made.
+#[crate::bisync::bisync]
+pub async fn fetch<P, T>(
+    negotiate: &mut impl Negotiate,
+    consume_pack: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> ExnResult<bool>,
+    mut progress: P,
+    should_interrupt: &AtomicBool,
+    Context {
+        handshake,
+        transport,
+        user_agent,
+        trace_packetlines,
+    }: Context<'_, T>,
+    Options {
+        shallow_file,
+        shallow,
+        tags,
+        reject_shallow_remote,
+    }: Options<'_>,
+) -> ExnResult<Option<Outcome>>
+where
+    P: legix_features::progress::NestedProgress,
+    P::SubProgress: 'static,
+    T: Transport,
+{
+    let _span = legix_trace::coarse!("legix_protocol::fetch()");
+    let v1_shallow_updates = handshake.v1_shallow_updates.take();
+    let protocol_version = handshake.server_protocol_version;
+
+    let fetch = crate::Command::Fetch;
+    let fetch_features = {
+        let mut f = fetch.default_features(protocol_version, &handshake.capabilities);
+        f.push(user_agent);
+        f
+    };
+
+    crate::fetch::Response::check_required_features(protocol_version, &fetch_features)?;
+    let sideband_all = fetch_features.iter().any(|(n, _)| *n == "sideband-all");
+    let mut arguments = Arguments::new(protocol_version, fetch_features, trace_packetlines);
+    if matches!(tags, Tags::Included) {
+        if !arguments.can_use_include_tag() {
+            return Err(legix_error::validation(
+                "Server lack feature \"include-tag\": To make this work we would have to implement another pass to fetch attached tags separately",
+            )
+            .raise_erased());
+        }
+        arguments.use_include_tag();
+    }
+    let (shallow_commits, mut shallow_lock) = add_shallow_args(&mut arguments, shallow, &shallow_file)?;
+
+    let negotiate_span = legix_trace::detail!(
+        "negotiate",
+        protocol_version = handshake.server_protocol_version as usize
+    );
+    let action = negotiate
+        .mark_complete_and_common_ref()
+        .or_raise_erased(|| message("Failed to prepare fetch negotiation"))?;
+    let mut previous_response = None::<crate::fetch::Response>;
+    match &action {
+        negotiate::Action::NoChange | negotiate::Action::SkipToRefUpdate => Ok(None),
+        negotiate::Action::MustNegotiate {
+            remote_ref_target_known,
+        } => {
+            if !negotiate.add_wants(&mut arguments, remote_ref_target_known) {
+                return Ok(None);
+            }
+            let mut rounds = Vec::new();
+            let is_stateless = arguments.is_stateless(!transport.connection_persists_across_multiple_requests());
+            let mut state = negotiate::one_round::State::new(is_stateless);
+            let reader = 'negotiation: loop {
+                let _round = legix_trace::detail!("negotiate round", round = rounds.len() + 1);
+                progress.step();
+                progress.set_name(format!("negotiate (round {})", rounds.len() + 1));
+                if should_interrupt.load(Ordering::Relaxed) {
+                    return Err(ClassificationMarker::with_source(
+                        Class::Retryable,
+                        legix_error::message!(
+                            "We were unable to figure out what objects the server should send after {} round(s)",
+                            rounds.len()
+                        ),
+                    )
+                    .raise_erased());
+                }
+
+                let (round, is_done) = negotiate
+                    .one_round(&mut state, &mut arguments, previous_response.as_ref())
+                    .or_raise_erased(|| message("Failed to negotiate objects with the server"))?;
+                rounds.push(round);
+                let mut reader = arguments
+                    .send(transport, is_done)
+                    .await
+                    .or_raise_erased(|| message("Failed to send fetch arguments"))?;
+                if sideband_all {
+                    setup_remote_progress(&mut progress, &mut reader, should_interrupt);
+                }
+                let response =
+                    crate::fetch::Response::from_line_reader(protocol_version, &mut reader, is_done, !is_done)
+                        .await
+                        .or_raise_erased(|| message("Could not decode server reply"))?;
+                let has_pack = response.has_pack();
+                previous_response = Some(response);
+                if has_pack {
+                    progress.step();
+                    progress.set_name("receiving pack".into());
+                    if !sideband_all {
+                        setup_remote_progress(&mut progress, &mut reader, should_interrupt);
+                    }
+                    break 'negotiation reader;
+                }
+            };
+            // This needs drop if tracing is compiled in. We just don't know it.
+            drop(negotiate_span);
+
+            let mut previous_response = previous_response.expect("knowledge of a pack means a response was received");
+            previous_response.append_v1_shallow_updates(v1_shallow_updates);
+            if !previous_response.shallow_updates().is_empty() && shallow_lock.is_none() {
+                if reject_shallow_remote {
+                    return Err(legix_error::validation(
+                        "Receiving objects from shallow remotes is prohibited due to the value of `clone.rejectShallow`",
+                    )
+                    .raise_erased());
+                }
+                shallow_lock = acquire_shallow_lock(&shallow_file).map(Some)?;
+            }
+
+            let (mut reader, may_read_to_end) =
+                consume_received_pack(reader, consume_pack, &mut progress, should_interrupt)?;
+
+            if may_read_to_end {
+                // Assure the final flush packet is consumed.
+                let has_read_to_end = reader.stopped_at().is_some();
+                if !has_read_to_end {
+                    read_remaining(&mut reader)
+                        .await
+                        .or_raise_erased(|| message("Failed to read remaining bytes in stream"))?;
+                }
+            }
+            drop(reader);
+
+            if let Some(shallow_lock) = shallow_lock
+                && !previous_response.shallow_updates().is_empty()
+            {
+                legix_shallow::write(shallow_lock, shallow_commits, previous_response.shallow_updates())
+                    .or_raise_erased(|| {
+                        message("Could not write 'shallow' file to incorporate remote updates after fetching")
+                    })?;
+            }
+            Ok(Some(Outcome {
+                last_response: previous_response,
+                negotiate: NegotiateOutcome { action, rounds },
+            }))
+        }
+    }
+}
+
+#[crate::bisync::only_async]
+fn consume_received_pack<R>(
+    reader: R,
+    consume: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> ExnResult<bool>,
+    progress: &mut dyn DynNestedProgress,
+    should_interrupt: &AtomicBool,
+) -> ExnResult<(R, bool)>
+where
+    R: crate::futures_io::AsyncBufRead + Unpin,
+{
+    let mut reader = crate::futures_lite::io::BlockOn::new(reader);
+    let may_read_to_end = consume(&mut reader, progress, should_interrupt)
+        .or_raise_erased(|| message("Failed to consume the pack sent by the remote"))?;
+    Ok((reader.into_inner(), may_read_to_end))
+}
+
+#[crate::bisync::only_sync]
+fn consume_received_pack<R>(
+    mut reader: R,
+    consume: impl FnOnce(&mut dyn std::io::BufRead, &mut dyn DynNestedProgress, &AtomicBool) -> ExnResult<bool>,
+    progress: &mut dyn DynNestedProgress,
+    should_interrupt: &AtomicBool,
+) -> ExnResult<(R, bool)>
+where
+    R: std::io::BufRead,
+{
+    let may_read_to_end = consume(&mut reader, progress, should_interrupt)
+        .or_raise_erased(|| message("Failed to consume the pack sent by the remote"))?;
+    Ok((reader, may_read_to_end))
+}
+
+#[crate::bisync::only_async]
+async fn read_remaining(reader: &mut (impl crate::futures_io::AsyncRead + Unpin)) -> std::io::Result<()> {
+    crate::futures_lite::io::copy(reader, &mut crate::futures_lite::io::sink())
+        .await
+        .map(|_| ())
+}
+
+#[crate::bisync::only_sync]
+fn read_remaining(reader: &mut impl std::io::Read) -> std::io::Result<()> {
+    std::io::copy(reader, &mut std::io::sink()).map(|_| ())
+}
+
+fn acquire_shallow_lock(shallow_file: &Path) -> ExnResult<legix_lock::File> {
+    legix_lock::File::acquire_to_update_resource(shallow_file, legix_lock::acquire::Fail::Immediately, None)
+        .or_raise_erased(|| message("'shallow' file could not be locked in preparation for writing changes"))
+}
+
+fn add_shallow_args(
+    args: &mut Arguments,
+    shallow: &Shallow,
+    shallow_file: &std::path::Path,
+) -> ExnResult<(Option<nonempty::NonEmpty<legix_hash::ObjectId>>, Option<legix_lock::File>)> {
+    let expect_change = *shallow != Shallow::NoChange;
+    let shallow_lock = expect_change.then(|| acquire_shallow_lock(shallow_file)).transpose()?;
+
+    let shallow_commits = legix_shallow::read(shallow_file)
+        .or_raise_erased(|| message("Could not read 'shallow' file to send current shallow boundary"))?;
+    if (shallow_commits.is_some() || expect_change) && !args.can_use_shallow() {
+        // NOTE: if this is an issue, we can always unshallow the repo ourselves.
+        return Err(legix_error::validation(
+            "Server lack feature \"shallow\": shallow clones need server support to remain shallow, otherwise bigger than expected packs are sent effectively unshallowing the repository",
+        )
+        .raise_erased());
+    }
+    if let Some(shallow_commits) = &shallow_commits {
+        for commit in shallow_commits.iter() {
+            args.shallow(commit);
+        }
+    }
+    match shallow {
+        Shallow::NoChange => {}
+        Shallow::DepthAtRemote(commits) => args.deepen(commits.get() as usize),
+        Shallow::Deepen(commits) => {
+            args.deepen(*commits as usize);
+            args.deepen_relative();
+        }
+        Shallow::Since { cutoff } => {
+            args.deepen_since(cutoff.seconds);
+        }
+        Shallow::Exclude {
+            remote_refs,
+            since_cutoff,
+        } => {
+            if let Some(cutoff) = since_cutoff {
+                args.deepen_since(cutoff.seconds);
+            }
+            for ref_ in remote_refs {
+                args.deepen_not(ref_.as_ref().as_bstr());
+            }
+        }
+    }
+    Ok((shallow_commits, shallow_lock))
+}
+
+fn setup_remote_progress<'a>(
+    progress: &mut dyn legix_features::progress::DynNestedProgress,
+    reader: &mut Box<dyn ExtendedBufRead<'a> + Unpin + 'a>,
+    should_interrupt: &'a AtomicBool,
+) {
+    reader.set_progress_handler(Some(Box::new({
+        let mut remote_progress = progress.add_child_with_id("remote".to_string(), ProgressId::RemoteProgress.into());
+        move |is_err: bool, data: &[u8]| {
+            crate::RemoteProgress::translate_to_progress(is_err, data, &mut remote_progress);
+            if should_interrupt.load(Ordering::Relaxed) {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        }
+    }) as HandleProgress<'a>));
+}

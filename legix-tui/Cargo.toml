@@ -1,0 +1,20 @@
+lints.workspace = true
+
+[package]
+name = "legix-tui"
+version = "0.0.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project dedicated to a terminal user interface to interact with git repositories"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[[bin]]
+name = "gixi"
+path = "src/main.rs"
+doctest = false
+test = false
+
+[dependencies]

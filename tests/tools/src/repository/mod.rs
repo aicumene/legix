@@ -9,14 +9,14 @@ use std::{
 };
 
 use bstr::{BStr, BString, ByteSlice};
-use gix_hash::ObjectId;
+use legix_hash::ObjectId;
 
 use crate::Result;
 
 #[cfg(not(feature = "repo-snapshot"))]
 mod git;
 #[cfg(feature = "repo-snapshot")]
-mod gix;
+mod legix;
 
 /// All relevant observable state of a repository and its worktree.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -126,7 +126,7 @@ pub enum WorktreeEntryKind {
 /// Git- and platform-generated config keys are omitted.
 pub fn snapshot(path: impl AsRef<Path>) -> Result<State> {
     #[cfg(feature = "repo-snapshot")]
-    let mut state = gix::snapshot(path.as_ref())?;
+    let mut state = legix::snapshot(path.as_ref())?;
     #[cfg(not(feature = "repo-snapshot"))]
     let mut state = git::snapshot(path.as_ref())?;
     state.config = normalize_config_paths(state.config.as_bstr(), &state.normalization_root)?;
@@ -153,7 +153,7 @@ pub fn snapshot_portable(path: impl AsRef<Path>) -> Result<State> {
 
 #[cfg(feature = "repo-snapshot")]
 fn normalize_config_paths(input: &BStr, root: &Path) -> Result<BString> {
-    let mut config = gix_config::File::try_from(input)?;
+    let mut config = legix_config::File::try_from(input)?;
     for (section_name, value_name) in [
         ("core", "worktree"),
         ("remote", "url"),
@@ -187,7 +187,7 @@ fn normalize_config_paths(input: &BStr, root: &Path) -> Result<BString> {
 }
 
 fn normalize_config_path(value: &BStr, root: &Path) -> BString {
-    let path = gix_path::from_bstr(value).into_owned();
+    let path = legix_path::from_bstr(value).into_owned();
     let relative = if path.is_absolute() {
         path.strip_prefix(root)
             .map(Path::to_owned)
@@ -238,7 +238,7 @@ fn relative_to_repository_sibling_inner(path: &Path, repository: &Path) -> Optio
 }
 
 fn comparable_realpath(path: &Path) -> Option<PathBuf> {
-    let realpath = gix_path::realpath(path).ok()?;
+    let realpath = legix_path::realpath(path).ok()?;
     #[cfg(windows)]
     {
         // Make equivalent existing paths such as `D:\a\gitoxide\source` and
@@ -413,7 +413,7 @@ fn is_generated_config_key(section: &[u8], key: &[u8]) -> bool {
 
 #[cfg(feature = "repo-snapshot")]
 fn remove_generated_config(input: &BStr) -> Result<BString> {
-    let mut config = gix_config::File::try_from(input)?;
+    let mut config = legix_config::File::try_from(input)?;
     for (section_name, value_names) in [
         (
             "core",
@@ -698,7 +698,7 @@ fn commit_depth(
 }
 
 fn portable_path(path: &Path) -> Cow<'_, BStr> {
-    gix_path::to_unix_separators_on_windows(gix_path::into_bstr(path))
+    legix_path::to_unix_separators_on_windows(legix_path::into_bstr(path))
 }
 
 fn worktree(root: Option<&Path>) -> Result<Vec<WorktreeEntry>> {

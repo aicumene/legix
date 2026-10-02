@@ -6,7 +6,7 @@ pub(super) mod function {
     };
 
     use anyhow::{Context, bail};
-    use gix::bstr::ByteSlice;
+    use legix::bstr::ByteSlice;
     use regex::bytes::Regex;
     use std::sync::LazyLock;
 
@@ -38,7 +38,7 @@ pub(super) mod function {
 
     /// Find the top-level directory of the current repository working tree.
     fn find_root() -> anyhow::Result<OsString> {
-        let output = gix_testtools::git_command(std::env::current_dir()?)
+        let output = legix_testtools::git_command(std::env::current_dir()?)
             .args(["rev-parse", "--show-toplevel"])
             .output()
             .context("Can't run `git` to find worktree root")?;
@@ -62,7 +62,7 @@ pub(super) mod function {
     /// where `git -C` will be able to use it, without alteration, regardless of the platform.
     /// (Otherwise, it may be preferable to set `root` as the `cwd` of the `git` process instead.)
     fn git_on(root: &OsStr) -> Command {
-        let mut cmd = gix_testtools::git_command(".");
+        let mut cmd = legix_testtools::git_command(".");
         cmd.arg("-C").arg(root);
         cmd
     }

@@ -1,9 +1,9 @@
-use gix_testtools::{Creation, FixtureState, Result};
+use legix_testtools::{Creation, FixtureState, Result};
 
 #[test]
 fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
     // First call should create the fixture
-    let (dir, (a, b, c)) = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
+    let (dir, (a, b, c)) = legix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
         let dir = fixture.path();
         let a = dir.join("test_file.txt");
         let b = dir.join("subdir");
@@ -26,9 +26,9 @@ fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
 
     // Second call with same version should return cached result
     // The closure is still called but knows that it's fresh.
-    let (dir2, _) = gix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
+    let (dir2, _) = legix_testtools::rust_fixture_read_only("test_fixture_read_only", 1, |fixture| {
         assert!(
-            matches!(fixture, gix_testtools::FixtureState::Fresh(_)),
+            matches!(fixture, legix_testtools::FixtureState::Fresh(_)),
             "Expected cached fixture on second call"
         );
         Ok(())
@@ -43,7 +43,7 @@ fn rust_fixture_read_only_creates_and_caches_fixture() -> Result {
 #[test]
 fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
     // Create fixture with version 1
-    let (dir1, _) = gix_testtools::rust_fixture_read_only("test_fixture_version", 1, |fixture| {
+    let (dir1, _) = legix_testtools::rust_fixture_read_only("test_fixture_version", 1, |fixture| {
         if let FixtureState::Uninitialized(dir) = fixture {
             std::fs::write(dir.join("version.txt"), "v1")?;
         }
@@ -51,7 +51,7 @@ fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
     })?;
 
     // Version 2 should create a new fixture in a different directory
-    let (dir2, _) = gix_testtools::rust_fixture_read_only("test_fixture_version", 2, |fixture| {
+    let (dir2, _) = legix_testtools::rust_fixture_read_only("test_fixture_version", 2, |fixture| {
         if let FixtureState::Uninitialized(dir) = fixture {
             std::fs::write(dir.join("version.txt"), "v2")?;
         }
@@ -73,7 +73,7 @@ fn rust_fixture_read_only_version_change_invalidates_cache() -> Result {
 #[test]
 fn rust_fixture_writable() -> Result {
     for creation in [Creation::CopyFromReadOnly, Creation::Execute] {
-        let (tmp, _) = gix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |fixture| {
+        let (tmp, _) = legix_testtools::rust_fixture_writable("test_fixture_writable_copy", 1, creation, |fixture| {
             if let FixtureState::Uninitialized(dir) = fixture {
                 std::fs::write(dir.join("original.txt"), "original content")?;
             }
@@ -97,7 +97,7 @@ fn rust_fixture_writable() -> Result {
 #[test]
 fn rust_fixture_closure_error_propagates() {
     // Test that errors from the closure are properly propagated
-    let res = gix_testtools::rust_fixture_read_only("test_fixture_error", 1, |_fixture| {
+    let res = legix_testtools::rust_fixture_read_only("test_fixture_error", 1, |_fixture| {
         Err::<(), _>("intentional error".into())
     });
 

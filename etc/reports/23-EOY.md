@@ -1,6 +1,6 @@
 ##### The year in numbers
 
-And 365 days later as of 2023-12-31, we are counting **141,005 SLOC, up by 34,513**, which is 75% *of the year before* (➡*OTYB*) in **13,002 commits up by 3,014** and 70%OTYB. There are **62 crates (up by 11)** and 2 binaries, with `ein` and `gix` as part of `gitoxide`. There are **105 unique authors (up by 48 and 133%OTYB)**. This means ~95 lines per day in ~8 commits each day. On GitHub there are **7,266 stars (up by 2,101 which is 88%OTYB)** for ~5.8 stars per day.
+And 365 days later as of 2023-12-31, we are counting **141,005 SLOC, up by 34,513**, which is 75% *of the year before* (➡*OTYB*) in **13,002 commits up by 3,014** and 70%OTYB. There are **62 crates (up by 11)** and 2 binaries, with `ein` and `legix` as part of `gitoxide`. There are **105 unique authors (up by 48 and 133%OTYB)**. This means ~95 lines per day in ~8 commits each day. On GitHub there are **7,266 stars (up by 2,101 which is 88%OTYB)** for ~5.8 stars per day.
 
 The tool invocation `ein tool estimate-hours` now rates the project cost at **8736 hours (up by 1914) or ~1092 x 8 hour working days**, for an average working time of **5.24 hours in the past 365 days**.
 
@@ -17,7 +17,7 @@ There was a (probably unreasonably long) list of items to be done in 2023, let�
 ##### The previous list
 
 - [ ] a GitHub action for faster clones and checkouts
-    - I didn’t even work on it probably out of fear it opens up a rabbit hole of massive proportions, and it was easy to rationalise it further by saying that it’s good to not spread `gix` even more and deal with the additional support this would entail.
+    - I didn’t even work on it probably out of fear it opens up a rabbit hole of massive proportions, and it was easy to rationalise it further by saying that it’s good to not spread `legix` even more and deal with the additional support this would entail.
     - I still think it’s absolutely worth doing though.
 - [x] shallow clones
 - [x] fully functional worktree checkout and reset (with filters) and submodules
@@ -48,7 +48,7 @@ Having learned from last year, I will do my best to keep the list of this year (
 * Clone by hard-link
 * support for built-in `file://` protocol
 
-With the above, all of `git2` in `cargo` could be replaced with `gix`, while at the same time moving `gix` up to near feature parity with `git2`. When that comes through it's probably time for a stable release, which in itself is a massive undertaking that's not possible with the way `gix` is currently built.
+With the above, all of `git2` in `cargo` could be replaced with `legix`, while at the same time moving `legix` up to near feature parity with `git2`. When that comes through it's probably time for a stable release, which in itself is a massive undertaking that's not possible with the way `legix` is currently built.
 
 Nonetheless, looking at this list along with the major progress with the `cargo` integration that it enables makes me very happy and excited for what's to come :).
 
@@ -107,7 +107,7 @@ Let’s do that again in 2024 :)!
 
 The pure line-of-code produced is down by 25% and the amount of commits is down by 30%. They might be correlated, even though I'd think that [Stacked Git](https://stacked-git.github.io) is the main reason for the reduction in commits.
 
-As for the reduced amount of code, I *think* that overall it's not less, but more or less the same. It might be that most of the 'missing' code is in commercial projects or went into `git2->gix` conversions. Of course, having a 140k SLOC project should make development slower, but as most code is still written from scratch I think the effects of the amount of code are small. Having tests for everything also is a key-enabler for fearless changes, and so is Rust.
+As for the reduced amount of code, I *think* that overall it's not less, but more or less the same. It might be that most of the 'missing' code is in commercial projects or went into `git2->legix` conversions. Of course, having a 140k SLOC project should make development slower, but as most code is still written from scratch I think the effects of the amount of code are small. Having tests for everything also is a key-enabler for fearless changes, and so is Rust.
 
 Maybe it's just a feeling, but I do think that the problems to solve are getting more complex as well,  and I feel I have to research more to grasp how to implement a certain Git capability. That probably contributes to taking quite a bit longer.
 

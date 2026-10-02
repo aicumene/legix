@@ -5,7 +5,7 @@ use std::sync::{
 
 use anyhow::{Result, anyhow};
 use clap::{CommandFactory, Parser};
-use gitoxide_core as core;
+use legix_core as core;
 
 use crate::{
     porcelain::options::{Args, Subcommands},
@@ -13,12 +13,12 @@ use crate::{
 };
 
 pub fn main() -> Result<()> {
-    let args: Args = Args::parse_from(gix::env::args_os());
+    let args: Args = Args::parse_from(legix::env::args_os());
     let should_interrupt = Arc::new(AtomicBool::new(false));
     #[expect(unsafe_code)]
     unsafe {
         // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
-        gix::interrupt::init_handler(1, {
+        legix::interrupt::init_handler(1, {
             let should_interrupt = Arc::clone(&should_interrupt);
             move || should_interrupt.store(true, Ordering::SeqCst)
         })?;
@@ -51,7 +51,7 @@ pub fn main() -> Result<()> {
                 repo_dir,
                 cmd,
             }) => {
-                use gitoxide_core::query;
+                use legix_core::query;
                 prepare_and_run(
                     "query",
                     trace,
@@ -97,7 +97,7 @@ pub fn main() -> Result<()> {
                     omit_unify_identities,
                 },
             ) => {
-                use gitoxide_core::hours;
+                use legix_core::hours;
                 prepare_and_run(
                     "estimate-hours",
                     trace,
@@ -124,7 +124,7 @@ pub fn main() -> Result<()> {
                 )
             }
             crate::porcelain::options::ToolCommands::Find { root, debug } => {
-                use gitoxide_core::organize;
+                use legix_core::organize;
                 prepare_and_run(
                     "find",
                     trace,
@@ -148,7 +148,7 @@ pub fn main() -> Result<()> {
                 execute,
                 repository_source,
             } => {
-                use gitoxide_core::organize;
+                use legix_core::organize;
                 prepare_and_run(
                     "organize",
                     trace,

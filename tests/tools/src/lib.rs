@@ -5,8 +5,8 @@
 //! ### `GIX_TEST_FIXTURE_HASH`
 //!
 //! Set this variable to control which hash function is used when creating or loading test fixtures.
-//! Valid values are the names of hash functions supported by `gix_hash::Kind` (e.g., `sha1`, `sha256`).
-//! If not set, the default hash function via `gix_hash::Kind::default()` is used.
+//! Valid values are the names of hash functions supported by `legix_hash::Kind` (e.g., `sha1`, `sha256`).
+//! If not set, the default hash function via `legix_hash::Kind::default()` is used.
 //!
 //! ## Script Isolation
 //!
@@ -57,7 +57,7 @@ const ARCHIVE_DIR_NAME: &str = "generated-archives";
 /// Use it like so:
 ///
 /// ```no_run
-/// use gix_testtools::TestResult;
+/// use legix_testtools::TestResult;
 ///
 /// #[test]
 /// fn this() -> TestResult {
@@ -66,7 +66,7 @@ const ARCHIVE_DIR_NAME: &str = "generated-archives";
 ///
 /// }
 /// ```
-pub use gix_error::TestResult;
+pub use legix_error::TestResult;
 
 /// A result type for reusable test helpers.
 pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -161,7 +161,7 @@ trait IsExcluded {
 
 /// Checks whether `archive` matches `.gitignore`-style lines read by [`GitignoreExclusions`].
 ///
-/// This is the fallback used when the `worktree-exclusions` feature is disabled, so the full `gix-worktree`
+/// This is the fallback used when the `worktree-exclusions` feature is disabled, so the full `legix-worktree`
 /// exclusion stack is not available. In that configuration, [`GitignoreExclusions::is_excluded()`] reads the
 /// `.gitignore` next to the generated archive and delegates the line matching to this function.
 #[cfg(not(feature = "worktree-exclusions"))]
@@ -268,51 +268,51 @@ impl Drop for GitDaemon {
 static SCRIPT_IDENTITY: LazyLock<Mutex<BTreeMap<PathBuf, u32>>> = LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
 #[cfg(feature = "worktree-exclusions")]
-static EXCLUDE_LUT: LazyLock<Mutex<Option<gix_worktree::Stack>>> = LazyLock::new(|| {
+static EXCLUDE_LUT: LazyLock<Mutex<Option<legix_worktree::Stack>>> = LazyLock::new(|| {
     let cache = (|| {
-        let (repo_path, _) = gix_discover::upwards(Path::new(".")).ok()?;
-        let (gix_dir, work_tree) = repo_path.into_repository_and_work_tree_directories();
+        let (repo_path, _) = legix_discover::upwards(Path::new(".")).ok()?;
+        let (legix_dir, work_tree) = repo_path.into_repository_and_work_tree_directories();
         let work_tree = work_tree?.canonicalize().ok()?;
 
         let mut buf = Vec::with_capacity(512);
         // Read the repository's case policy instead of creating filesystem probes in the source checkout.
-        let common_dir = gix_discover::path::from_plain_file_relative_to_file(&gix_dir.join("commondir"))
+        let common_dir = legix_discover::path::from_plain_file_relative_to_file(&legix_dir.join("commondir"))
             .transpose()
             .ok()?
-            .unwrap_or_else(|| gix_dir.clone());
+            .unwrap_or_else(|| legix_dir.clone());
         let mut config =
-            gix_config::File::from_path_no_includes(common_dir.join("config"), gix_config::Source::Local).ok()?;
+            legix_config::File::from_path_no_includes(common_dir.join("config"), legix_config::Source::Local).ok()?;
         if config
             .boolean_by("extensions", None, "worktreeConfig")
             .ok()?
             .unwrap_or(false)
             && let Ok(worktree_config) =
-                gix_config::File::from_path_no_includes(gix_dir.join("config.worktree"), gix_config::Source::Worktree)
+                legix_config::File::from_path_no_includes(legix_dir.join("config.worktree"), legix_config::Source::Worktree)
         {
             config.append(worktree_config).ok()?;
         }
         let ignore_case = config.boolean_by("core", None, "ignoreCase").ok()?.unwrap_or(false);
         let case = if ignore_case {
-            gix_worktree::ignore::glob::pattern::Case::Fold
+            legix_worktree::ignore::glob::pattern::Case::Fold
         } else {
             Default::default()
         };
-        let state = gix_worktree::stack::State::IgnoreStack(gix_worktree::stack::state::Ignore::new(
+        let state = legix_worktree::stack::State::IgnoreStack(legix_worktree::stack::state::Ignore::new(
             Default::default(),
-            gix_worktree::ignore::Search::from_git_dir(
-                &gix_dir,
+            legix_worktree::ignore::Search::from_git_dir(
+                &legix_dir,
                 None,
                 &mut buf,
-                gix_worktree::stack::state::ignore::ParseIgnore {
+                legix_worktree::stack::state::ignore::ParseIgnore {
                     support_precious: false,
                 },
             )
             .ok()?,
             None,
-            gix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
+            legix_worktree::stack::state::ignore::Source::WorktreeThenIdMappingIfNotSkipped,
             Default::default(),
         ));
-        Some(gix_worktree::Stack::new(
+        Some(legix_worktree::Stack::new(
             work_tree,
             state,
             case,
@@ -337,8 +337,8 @@ impl IsExcluded for WorktreeExclusions {
                 cache
                     .at_path(
                         relative_path,
-                        Some(gix_worktree::index::entry::Mode::FILE),
-                        &gix_worktree::object::find::Never,
+                        Some(legix_worktree::index::entry::Mode::FILE),
+                        &legix_worktree::object::find::Never,
                     )
                     .ok()?
                     .is_excluded()
@@ -550,7 +550,7 @@ fn spawn_git_daemon_process(working_dir: impl AsRef<Path>) -> std::io::Result<Gi
     };
 
     let server_addr = addr_at(free_port);
-    for time in gix_lock::backoff::Quadratic::default_with_random() {
+    for time in legix_lock::backoff::Quadratic::default_with_random() {
         std::thread::sleep(time);
         if std::net::TcpStream::connect(server_addr).is_ok() {
             break;
@@ -1341,11 +1341,11 @@ pub fn scripted_fixture_writable_with_args_single_archive_with_post_with_git_ver
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, FixtureState};
+/// use legix_testtools::{Result, FixtureState};
 ///
 /// #[test]
 /// fn test_with_rust_fixture() -> Result {
-///     let (dir, _) = gix_testtools::rust_fixture_read_only("my_fixture", 1, |state| {
+///     let (dir, _) = legix_testtools::rust_fixture_read_only("my_fixture", 1, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
 ///         }
@@ -1375,11 +1375,11 @@ where
 /// ### Example
 ///
 /// ```no_run
-/// use gix_testtools::{Result, Creation, FixtureState};
+/// use legix_testtools::{Result, Creation, FixtureState};
 ///
 /// #[test]
 /// fn test_with_writable_rust_fixture() -> Result {
-///     let (dir, ()) = gix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |state| {
+///     let (dir, ()) = legix_testtools::rust_fixture_writable("my_fixture", 1, Creation::CopyFromReadOnly, |state| {
 ///         if let FixtureState::Uninitialized(path) = state {
 ///             std::fs::write(path.join("file.txt"), "content")?;
 ///         }
@@ -1405,7 +1405,7 @@ where
 fn rust_fixture_writable_inner<T, F>(
     name: &str,
     version: u32,
-    object_hash: Option<gix_hash::Kind>,
+    object_hash: Option<legix_hash::Kind>,
     mut make_fixture: F,
     mode: Creation,
     excludes: &dyn IsExcluded,
@@ -1433,7 +1433,7 @@ where
 fn rust_fixture_read_only_inner<T, F>(
     name: &str,
     version: u32,
-    object_hash: Option<gix_hash::Kind>,
+    object_hash: Option<legix_hash::Kind>,
     make_fixture: F,
     destination_dir: Option<&Path>,
     excludes: &dyn IsExcluded,
@@ -1442,8 +1442,8 @@ where
     F: FnOnce(FixtureState<'_>) -> PostResult<T>,
 {
     // Assure tempfiles get removed when aborting the test.
-    gix_tempfile::signal::setup(
-        gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
+    legix_tempfile::signal::setup(
+        legix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
     );
 
     // For Rust fixtures, the identity is simply the provided version number.
@@ -1488,13 +1488,13 @@ where
 fn marker_if_needed(
     destination_dir: Option<&Path>,
     archive_name: impl AsRef<Path>,
-) -> Result<Option<gix_lock::Marker>> {
+) -> Result<Option<legix_lock::Marker>> {
     Ok(destination_dir
         .is_none()
         .then(|| {
-            gix_lock::Marker::acquire_to_hold_resource(
+            legix_lock::Marker::acquire_to_hold_resource(
                 archive_name,
-                gix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
+                legix_lock::acquire::Fail::AfterDurationWithBackoff(Duration::from_secs(6 * 60)),
                 None,
             )
         })
@@ -1505,7 +1505,7 @@ fn force_and_dir(
     destination_dir: Option<&Path>,
     fixture_base: &Path,
     archive_name: impl AsRef<Path>,
-    object_hash: Option<gix_hash::Kind>,
+    object_hash: Option<legix_hash::Kind>,
     script_identity: &dyn std::fmt::Display,
     cache_variant: Option<&str>,
 ) -> (bool, PathBuf) {
@@ -1634,8 +1634,8 @@ where
     F: FnMut(FixtureState<'_>) -> PostResult<T>,
 {
     // Assure tempfiles get removed when aborting the test.
-    gix_tempfile::signal::setup(
-        gix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
+    legix_tempfile::signal::setup(
+        legix_tempfile::signal::handler::Mode::DeleteTempfilesOnTerminationAndRestoreDefaultBehaviour,
     );
 
     let object_hash = object_hash();
@@ -1774,13 +1774,13 @@ where
 /// # Panics
 ///
 /// If the value set in `GIX_TEST_FIXTURE_HASH` is not valid.
-pub fn object_hash_from_env() -> Option<gix_hash::Kind> {
-    static FIXTURE_HASH: LazyLock<Option<gix_hash::Kind>> = LazyLock::new(|| {
+pub fn object_hash_from_env() -> Option<legix_hash::Kind> {
+    static FIXTURE_HASH: LazyLock<Option<legix_hash::Kind>> = LazyLock::new(|| {
         env::var_os("GIX_TEST_FIXTURE_HASH").and_then(|value| value.into_string().ok()).map(|object_kind| {
-        gix_hash::Kind::from_str(&object_kind).unwrap_or_else(|_| {
+        legix_hash::Kind::from_str(&object_kind).unwrap_or_else(|_| {
                     panic!(
                         "GIX_TEST_FIXTURE_HASH was set to {object_kind} which is an invalid value. Valid values are {}. Exiting.",
-                        gix_hash::Kind::all().iter().map(std::string::ToString::to_string).collect::<Vec<_>>().join(", ")
+                        legix_hash::Kind::all().iter().map(std::string::ToString::to_string).collect::<Vec<_>>().join(", ")
                     )
                 })
     })
@@ -1789,11 +1789,11 @@ pub fn object_hash_from_env() -> Option<gix_hash::Kind> {
 }
 
 /// Like [`object_hash_from_env()`], but returns the default hash if `GIX_TEST_FIXTURE_HASH` is not set.
-pub fn object_hash() -> gix_hash::Kind {
+pub fn object_hash() -> legix_hash::Kind {
     object_hash_from_env().unwrap_or_default()
 }
 
-fn is_sha1(kind: gix_hash::Kind) -> bool {
+fn is_sha1(kind: legix_hash::Kind) -> bool {
     kind.len_in_bytes() == 20
 }
 
@@ -1827,7 +1827,7 @@ pub fn git(current_dir: impl AsRef<Path>, arguments: &str) -> Result<String> {
 /// follows [`std::process::Command`] defaults. Add test-specific environment overrides only after
 /// calling this helper, and point any repository or file overrides at disposable test data.
 pub fn git_command(current_dir: impl AsRef<Path>) -> std::process::Command {
-    let mut cmd = command_with_environment_snapshot(gix_path::env::exe_invocation());
+    let mut cmd = command_with_environment_snapshot(legix_path::env::exe_invocation());
     configure_git_environment(&mut cmd, current_dir.as_ref()).current_dir(current_dir);
     cmd
 }
@@ -1859,7 +1859,7 @@ fn command_with_environment_snapshot(program: impl AsRef<OsStr>) -> std::process
 /// Working-directory changes still require a separate [`set_current_dir()`] guard.
 pub fn isolate_git_environment() -> Result<Env<'static>> {
     let config_dir = tempfile::TempDir::new()?;
-    let mut cmd = std::process::Command::new(gix_path::env::exe_invocation());
+    let mut cmd = std::process::Command::new(legix_path::env::exe_invocation());
     configure_git_environment(&mut cmd, config_dir.path());
     let mut guard = Env {
         altered_vars: Vec::new(),
@@ -1988,7 +1988,7 @@ fn split_git_arguments(input: &str) -> Result<Vec<String>> {
 /// Debug wrappers like `Sha1(<hex>)` and `Sha256(<hex>)` are collapsed to the same placeholder.
 /// It also returns the replaced object IDs in first-seen order, so `Oid(n)` can be looked up as
 /// `result.1[n - 1]`.
-pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<gix_hash::ObjectId>) {
+pub fn normalize_debug_snapshot(value: &dyn std::fmt::Debug) -> (String, Vec<legix_hash::ObjectId>) {
     normalize_hashes(&format!("{value:#?}"))
 }
 
@@ -2094,10 +2094,10 @@ pub fn redact_debug_snapshot(
 /// Normalize 40- and 64-character hexadecimal object IDs in `input`.
 ///
 /// This is like [`normalize_debug_snapshot()`], but operates on already-formatted text.
-pub fn normalize_hashes(input: &str) -> (String, Vec<gix_hash::ObjectId>) {
+pub fn normalize_hashes(input: &str) -> (String, Vec<legix_hash::ObjectId>) {
     let mut out = String::with_capacity(input.len());
-    let mut seen = HashMap::<gix_hash::ObjectId, usize>::new();
-    let mut removed = Vec::<gix_hash::ObjectId>::new();
+    let mut seen = HashMap::<legix_hash::ObjectId, usize>::new();
+    let mut removed = Vec::<legix_hash::ObjectId>::new();
     let mut chars = input.chars().peekable();
     let mut hex = String::new();
 
@@ -2122,11 +2122,11 @@ pub fn normalize_hashes(input: &str) -> (String, Vec<gix_hash::ObjectId>) {
     (out, removed)
 }
 
-fn raw_object_id(input: &str) -> Option<gix_hash::ObjectId> {
+fn raw_object_id(input: &str) -> Option<legix_hash::ObjectId> {
     if !matches!(input.len(), 40 | 64) {
         return None;
     }
-    gix_hash::ObjectId::from_hex(input.as_bytes()).ok()
+    legix_hash::ObjectId::from_hex(input.as_bytes()).ok()
 }
 
 fn strip_debug_hash_wrapper(out: &mut String, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
@@ -2150,9 +2150,9 @@ fn strip_debug_hash_wrapper(out: &mut String, chars: &mut std::iter::Peekable<st
 }
 
 fn push_normalized_oid(
-    oid: gix_hash::ObjectId,
-    seen: &mut HashMap<gix_hash::ObjectId, usize>,
-    removed: &mut Vec<gix_hash::ObjectId>,
+    oid: legix_hash::ObjectId,
+    seen: &mut HashMap<legix_hash::ObjectId, usize>,
+    removed: &mut Vec<legix_hash::ObjectId>,
     out: &mut String,
 ) {
     let normalized = *seen.entry(oid).or_insert_with(|| {
@@ -2167,13 +2167,13 @@ fn push_normalized_oid(
 }
 
 #[cfg(windows)]
-const NULL_DEVICE: &str = "nul"; // See `gix_path::env::git::NULL_DEVICE` on why this form is used.
+const NULL_DEVICE: &str = "nul"; // See `legix_path::env::git::NULL_DEVICE` on why this form is used.
 #[cfg(not(windows))]
 const NULL_DEVICE: &str = "/dev/null";
 
 /// Ensure fixture scripts resolve `git` to the same executable used by direct helpers and version checks.
 ///
-/// Scripts invoke `git` through `PATH`, whereas [`gix_path::env::exe_invocation()`] may select an absolute executable
+/// Scripts invoke `git` through `PATH`, whereas [`legix_path::env::exe_invocation()`] may select an absolute executable
 /// outside the inherited `PATH`. Without preferring its directory, a version check can inspect a newer Git while the
 /// fixture subsequently runs an older one which lacks the checked feature.
 fn prefer_git_in_path(command: &mut std::process::Command, git: &Path) {
@@ -2189,7 +2189,7 @@ fn prefer_git_in_path(command: &mut std::process::Command, git: &Path) {
 
 fn configure_command<'a, I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
     cmd: &'a mut std::process::Command,
-    object_hash: gix_hash::Kind,
+    object_hash: legix_hash::Kind,
     args: I,
     script_result_directory: &Path,
 ) -> &'a mut std::process::Command {
@@ -2222,7 +2222,7 @@ pub fn configure_git_environment(
     // either be avoided, or made after this function returns (but before spawning the command).
     let mut msys_for_git_bash_on_windows = env::var_os("MSYS").unwrap_or_default();
     msys_for_git_bash_on_windows.push(" winsymlinks:nativestrict");
-    prefer_git_in_path(cmd, gix_path::env::exe_invocation());
+    prefer_git_in_path(cmd, legix_path::env::exe_invocation());
     cmd.env_remove("SSH_ASKPASS")
         .env_remove("BASH_ENV")
         .env_remove("ENV")
@@ -2301,8 +2301,8 @@ pub fn apply_git_config_by_environment<'a>(
 ///
 /// On non-Windows systems, the simple name `bash` is used, which triggers a path search when run.
 pub fn bash_program() -> &'static Path {
-    // TODO(deps): Unify with `gix_path::env::shell()` by having both call a more general function
-    //             in `gix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
+    // TODO(deps): Unify with `legix_path::env::shell()` by having both call a more general function
+    //             in `legix-path`. See https://github.com/GitoxideLabs/gitoxide/issues/1886.
     static GIT_BASH: LazyLock<PathBuf> = LazyLock::new(|| {
         if cfg!(windows) {
             GIT_CORE_DIR

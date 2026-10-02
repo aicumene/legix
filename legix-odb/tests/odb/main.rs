@@ -1,0 +1,40 @@
+use legix_hash::ObjectId;
+use legix_testtools::fixture_path;
+
+pub use legix_testtools::{scripted_fixture_read_only, scripted_fixture_read_only_with_args, scripted_fixture_writable};
+
+pub fn hex_to_id(hex: &str) -> ObjectId {
+    ObjectId::from_hex(hex.as_bytes()).expect("valid hex object id")
+}
+
+pub fn hex_to_id_for_hash(sha1: &str, sha256: &str) -> ObjectId {
+    hex_to_id(match legix_testtools::object_hash() {
+        legix_hash::Kind::Sha256 => sha256,
+        _ => sha1,
+    })
+}
+
+pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Open an object store at `objects_dir`.
+/// The static SHA-1 fixtures keep using [`db()`]/[`db_small_packs()`] instead.
+pub fn odb_at(objects_dir: impl Into<std::path::PathBuf>) -> std::io::Result<legix_odb::Handle> {
+    legix_odb::at(objects_dir, legix_testtools::object_hash())
+}
+
+fn db() -> legix_odb::Handle {
+    legix_odb::at(fixture_path("objects"), legix_hash::Kind::Sha1).expect("valid object path")
+}
+
+fn db_small_packs() -> legix_odb::Handle {
+    legix_odb::at(fixture_path("repos/small-packs.git/objects"), legix_hash::Kind::Sha1).unwrap()
+}
+
+pub mod alternate;
+mod error;
+pub mod find;
+pub mod header;
+pub mod memory;
+pub mod regression;
+pub mod sink;
+pub mod store;

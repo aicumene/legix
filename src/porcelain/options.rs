@@ -100,7 +100,7 @@ pub enum ToolCommands {
 pub mod tools {
     use std::path::PathBuf;
 
-    use gix::bstr::BString;
+    use legix::bstr::BString;
 
     #[cfg(feature = "gitoxide-core-tools-query")]
     #[derive(Debug, clap::Parser)]
@@ -138,7 +138,7 @@ pub mod tools {
                 /// The path to trace through history.
                 // This can't be here anymore as we also need to compile without `Send` support.
                 #[clap(value_parser = AsPathSpec)]
-                path: gix::bstr::BString,
+                path: legix::bstr::BString,
             },
         }
     }
@@ -209,8 +209,8 @@ pub mod tools {
 
         fn assure_is_repo(dir: &OsStr) -> anyhow::Result<()> {
             let git_dir = PathBuf::from(dir).join(".git");
-            let p = gix::path::realpath(&git_dir)
-                .map_err(gix::Exn::into_error)
+            let p = legix::path::realpath(&git_dir)
+                .map_err(legix::Exn::into_error)
                 .with_context(|| format!("Could not canonicalize git repository at '{}'", git_dir.display()))?;
             if p.extension().unwrap_or_default() == "git"
                 || p.file_name().unwrap_or_default() == ".git"

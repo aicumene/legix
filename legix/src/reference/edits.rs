@@ -1,0 +1,60 @@
+///
+pub mod set_target_id {
+    use legix_ref::{Target, transaction::PreviousValue};
+
+    use crate::{Error, Reference, Result, bstr::BString};
+
+    impl Reference<'_> {
+        /// Set the id of this direct reference to `id` and use `reflog_message` for the reflog (if enabled in the repository).
+        ///
+        /// Note that the operation will fail on symbolic references, to change their type use the lower level reference database,
+        /// or if the reference was deleted or changed in the mean time.
+        /// Furthermore, refrain from using this method for more than a one-off change as it creates a transaction for each invocation.
+        /// If multiple reference should be changed, use [`Repository::edit_references()`][crate::Repository::edit_references()]
+        /// or the lower level reference database instead.
+        pub fn set_target_id(
+            &mut self,
+            id: impl Into<legix_hash::ObjectId>,
+            reflog_message: impl Into<BString>,
+        ) -> Result<()> {
+            match &self.inner.target {
+                Target::Symbolic(name) => {
+                    return Err(Error::from_error(legix_error::message!(
+                        "Cannot change symbolic reference {name:?} into a direct one by setting it to an id"
+                    )));
+                }
+                Target::Object(current_id) => {
+                    let changed = self.repo.reference(
+                        self.name(),
+                        id,
+                        PreviousValue::MustExistAndMatch(Target::Object(current_id.to_owned())),
+                        reflog_message,
+                    )?;
+                    *self = changed;
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+///
+pub mod delete {
+    use crate::Result;
+    use legix_ref::transaction::{PreviousValue, RefEdit};
+
+    use crate::Reference;
+
+    impl Reference<'_> {
+        /// Delete this reference or fail if it was changed since last observed.
+        /// Note that this instance remains available in memory but probably shouldn't be used anymore.
+        pub fn delete(&self) -> Result<()> {
+            self.repo
+                .edit_reference(RefEdit::delete(
+                    self.inner.name.clone(),
+                    PreviousValue::MustExistAndMatch(self.inner.target.clone()),
+                ))
+                .map(|_| ())
+        }
+    }
+}

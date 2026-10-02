@@ -1,0 +1,243 @@
+fn try_from_error() -> std::io::Error {
+    std::io::Error::other("object type conversion failed")
+}
+
+/// Needed for roundtripping object types that take a `object_hash` parameter.
+/// This is the same as `round_trip`, but for types that have `from_bytes()` with `object_hash`.
+macro_rules! round_trip_with_hash_kind {
+    ($owned:ty, $borrowed:ty, $( $files:literal ), +) => {
+        #[test]
+        fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            use std::convert::TryFrom;
+            use std::io::Write;
+            use crate::object_fixture;
+            use legix_object::{ObjectRef, Object, WriteTo};
+            use bstr::ByteSlice;
+            let hash_kind = crate::fixture_hash_kind();
+
+            for input_name in &[
+                $( $files ),*
+            ] {
+                let input = object_fixture(input_name)?;
+                // Test the parse->borrowed->owned->write chain for an object kind
+                let mut output = Vec::new();
+                let item = <$borrowed>::from_bytes(&input, hash_kind)?;
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "borrowed: {input_name}");
+
+                let item: $owned = item.try_into()?;
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr());
+
+                // Test the parse->borrowed->owned->write chain for the top-level objects
+                let item = ObjectRef::from(<$borrowed>::from_bytes(&input, hash_kind)?);
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "object-ref");
+
+                let item: Object = Object::try_from(item)?;
+                output.clear();
+                item.write_to(&mut output)?;
+                assert_eq!(output.as_bstr(), input.as_bstr(), "owned");
+
+                // Test the loose serialisation -> parse chain for an object kind
+                let item = <$borrowed>::from_bytes(&input, hash_kind)?;
+                // serialise a borowed item to a tagged loose object
+                output.clear();
+                {
+                    let w = &mut output;
+                    w.write_all(&item.loose_header())?;
+                    item.write_to(w)?;
+                    let parsed = ObjectRef::from_loose(&output, hash_kind)?;
+                    let item2 = <$borrowed>::try_from(parsed).map_err(|_| super::try_from_error())?;
+                    assert_eq!(item2, item, "object-ref loose: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
+                }
+
+                let item: $owned = item.try_into()?;
+                // serialise an owned to a tagged loose object
+                output.clear();
+                let w = &mut output;
+                w.write_all(&item.loose_header())?;
+                item.write_to(w)?;
+                let parsed = ObjectRef::from_loose(&output, hash_kind)?;
+                let parsed_borrowed = <$borrowed>::try_from(parsed).map_err(|_| super::try_from_error())?;
+                let item2: $owned = parsed_borrowed.try_into().map_err(|_| super::try_from_error())?;
+                assert_eq!(item2, item, "object-ref loose owned: {input_name} {:?}\n{:?}", output.as_bstr(), input.as_bstr());
+            }
+            Ok(())
+        }
+    };
+}
+
+mod tag {
+    round_trip_with_hash_kind!(
+        legix_object::Tag,
+        legix_object::TagRef,
+        "tag/empty_missing_nl.txt",
+        "tag/empty.txt",
+        "tag/no-tagger.txt",
+        "tag/whitespace.txt",
+        "tag/with-newlines.txt",
+        "tag/signed.txt"
+    );
+}
+
+mod commit {
+    round_trip_with_hash_kind!(
+        legix_object::Commit,
+        legix_object::CommitRef,
+        "commit/email-with-space.txt",
+        "commit/signed-whitespace.txt",
+        "commit/two-multiline-headers.txt",
+        "commit/mergetag.txt",
+        "commit/merge.txt",
+        "commit/signed.txt",
+        "commit/signed-singleline.txt",
+        "commit/signed-with-encoding.txt",
+        "commit/unsigned.txt",
+        "commit/whitespace.txt",
+        "commit/with-encoding.txt",
+        "commit/subtle.txt"
+    );
+}
+
+mod tree {
+    use legix_object::{WriteTo, tree, tree::EntryKind};
+
+    #[test]
+    fn write_to_does_not_validate() {
+        let hash_kind = crate::fixture_hash_kind();
+        let mut tree = legix_object::Tree::empty();
+        tree.entries.push(tree::Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "".into(),
+            oid: hash_kind.null(),
+        });
+        tree.entries.push(tree::Entry {
+            mode: EntryKind::Tree.into(),
+            filename: "something\nwith\newlines\n".into(),
+            oid: hash_kind.empty_tree(),
+        });
+        tree.write_to(&mut std::io::sink())
+            .expect("write succeeds, no validation is performed");
+    }
+
+    #[test]
+    fn write_to_does_not_allow_separator() {
+        let hash_kind = crate::fixture_hash_kind();
+        let mut tree = legix_object::Tree::empty();
+        tree.entries.push(tree::Entry {
+            mode: EntryKind::Blob.into(),
+            filename: "hi\0ho".into(),
+            oid: hash_kind.null(),
+        });
+        let err = tree.write_to(&mut std::io::sink()).unwrap_err();
+        insta::assert_debug_snapshot!(err, "write to does not allow separator", @r#"
+        Custom {
+            kind: Other,
+            error: Message {
+                message: "Nullbytes are invalid in file paths as they are separators",
+                class: Validation,
+                values: {"input": Bytes("hi\0ho")},
+            },
+        }
+        "#);
+    }
+
+    round_trip_with_hash_kind!(legix_object::Tree, legix_object::TreeRef, "tree/everything.tree");
+}
+
+mod blob {
+    use std::{convert::TryFrom, io::Write};
+
+    use bstr::ByteSlice;
+    use legix_object::{Blob, BlobRef, Object, ObjectRef, WriteTo};
+
+    use crate::fixture_bytes;
+
+    #[test]
+    fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let input_name = "tree/everything.tree";
+        let input = fixture_bytes(input_name);
+        // It doesn't matter which data we use - it's not interpreted.
+
+        let mut output = Vec::new();
+        let item = BlobRef::from_bytes(&input)?;
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "borrowed: {input_name}");
+
+        let item: Blob = item.into();
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr());
+
+        let item = ObjectRef::from(BlobRef::from_bytes(&input)?);
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "object-ref");
+
+        let item: Object = Object::try_from(item)?;
+        output.clear();
+        item.write_to(&mut output)?;
+        assert_eq!(output.as_bstr(), input.as_bstr(), "owned");
+
+        let item = BlobRef::from_bytes(&input)?;
+        output.clear();
+        {
+            let w = &mut output;
+            w.write_all(&item.loose_header())?;
+            item.write_to(w)?;
+            let parsed = ObjectRef::from_loose(&output, legix_testtools::object_hash())?;
+            let item2 = BlobRef::try_from(parsed).map_err(|_| super::try_from_error())?;
+            assert_eq!(
+                item2,
+                item,
+                "object-ref loose: {input_name} {:?}\n{:?}",
+                output.as_bstr(),
+                input.as_bstr()
+            );
+        }
+
+        let item: Blob = item.into();
+        output.clear();
+        let w = &mut output;
+        w.write_all(&item.loose_header())?;
+        item.write_to(w)?;
+        let parsed = ObjectRef::from_loose(&output, legix_testtools::object_hash())?;
+        let parsed_borrowed = BlobRef::try_from(parsed).map_err(|_| super::try_from_error())?;
+        let item2: Blob = parsed_borrowed.into();
+        assert_eq!(
+            item2,
+            item,
+            "object-ref loose owned: {input_name} {:?}\n{:?}",
+            output.as_bstr(),
+            input.as_bstr()
+        );
+
+        Ok(())
+    }
+}
+
+mod loose_header {
+    use bstr::ByteSlice;
+    use legix_object::{Kind, decode, encode};
+
+    #[test]
+    fn round_trip() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        for (kind, size, expected) in &[
+            (Kind::Tree, 1234, "tree 1234\0".as_bytes()),
+            (Kind::Blob, 0, b"blob 0\0"),
+            (Kind::Commit, 24241, b"commit 24241\0"),
+            (Kind::Tag, 9999999999, b"tag 9999999999\0"),
+        ] {
+            let buf = encode::loose_header(*kind, *size);
+            assert_eq!(buf.as_bstr(), expected.as_bstr());
+            let (actual_kind, actual_size, actual_read) = decode::loose_header(&buf)?;
+            assert_eq!(actual_kind, *kind);
+            assert_eq!(actual_size, *size);
+            assert_eq!(actual_read, buf.len());
+        }
+        Ok(())
+    }
+}

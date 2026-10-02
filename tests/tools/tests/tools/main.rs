@@ -1,9 +1,9 @@
 mod isolation {
-    use gix_testtools::{Creation, Result, redact_debug_snapshot};
+    use legix_testtools::{Creation, Result, redact_debug_snapshot};
 
     #[test]
     fn script_configuration_adds_to_the_isolation() -> Result {
-        let dir = gix_testtools::scripted_fixture_writable_with_args(
+        let dir = legix_testtools::scripted_fixture_writable_with_args(
             "make_config_isolation.sh",
             None::<String>,
             Creation::Execute,
@@ -30,7 +30,7 @@ mod isolation {
             "explicit git -c options can override isolation"
         );
         assert_eq!(
-            gix_testtools::git(dir.path().join("repo"), "config --get maintenance.auto")?.trim(),
+            legix_testtools::git(dir.path().join("repo"), "config --get maintenance.auto")?.trim(),
             "false",
             "`git()` runs with the same isolation"
         );

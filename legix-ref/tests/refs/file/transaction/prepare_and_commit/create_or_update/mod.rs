@@ -1,0 +1,963 @@
+use crate::Result;
+use legix_date::parse::TimeBuf;
+use legix_hash::ObjectId;
+use legix_lock::acquire::Fail;
+use legix_object::bstr::{BString, ByteSlice};
+use legix_ref::{
+    Target,
+    file::{
+        ReferenceExt,
+        transaction::{self, PackedRefs},
+    },
+    store::WriteReflog,
+    transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog},
+};
+
+use crate::{
+    file::{
+        EmptyCommit, store_with_packed_refs, store_writable,
+        transaction::prepare_and_commit::{
+            committer, create_at, create_symbolic_at, delete_at, empty_store, log_line, reflog_lines,
+        },
+    },
+    hex_to_id,
+};
+
+mod collisions;
+
+#[test]
+fn intermediate_directories_are_removed_on_rollback() -> Result {
+    for explicit_rollback in [false, true] {
+        let (dir, store) = empty_store()?;
+
+        let transaction = store.transaction().prepare(
+            [create_at("refs/heads/a/b/ref"), create_at("refs/heads/a/c/ref")],
+            Fail::Immediately,
+            Fail::Immediately,
+        )?;
+
+        assert!(
+            dir.path().join("refs/heads/a/b").exists(),
+            "lock files have been created in their place to avoid concurrent modification"
+        );
+        assert!(dir.path().join("refs/heads/a/c").exists());
+
+        if explicit_rollback {
+            transaction.rollback();
+        } else {
+            drop(transaction);
+        }
+
+        assert!(!dir.path().join("refs/heads").exists());
+        assert!(
+            !dir.path().join("refs").exists(),
+            "we go all in right now and also remove the refs directory. 'git' might not do that, but it's not a problem either"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn reference_with_equally_named_empty_or_non_empty_directory_already_in_place_can_potentially_recover() -> Result {
+    #[cfg(not(windows))]
+    let mut error_snapshots = Vec::new();
+    for is_empty in &[true, false] {
+        let (dir, store) = empty_store()?;
+        let head_dir = dir.path().join("HEAD");
+        std::fs::create_dir_all(head_dir.join("a").join("b").join("also-empty"))?;
+        if !*is_empty {
+            std::fs::write(head_dir.join("file.ext"), "".as_bytes())?;
+        }
+
+        let mut buf = TimeBuf::default();
+        let edits = store
+            .transaction()
+            .prepare(
+                Some(RefEdit::update(
+                    "HEAD".try_into()?,
+                    Target::Symbolic("refs/heads/main".try_into().unwrap()),
+                    PreviousValue::MustNotExist,
+                    "",
+                )),
+                Fail::Immediately,
+                Fail::Immediately,
+            )?
+            .commit(committer().to_ref(&mut buf));
+        if *is_empty {
+            let edits = edits?;
+            assert!(
+                store.try_find_loose(edits[0].name.as_ref())?.is_some(),
+                "HEAD was created despite a directory being in the way"
+            );
+        } else {
+            let err = edits.expect_err("the directory is not empty");
+            assert_eq!(
+                err.metadata().next().expect("failed reference")["reference"],
+                legix_error::MetadataValue::from(b"HEAD".as_slice())
+            );
+            #[cfg(not(windows))]
+            error_snapshots.push(legix_testtools::redact_debug_snapshot(&(err), &[]));
+        }
+    }
+    #[cfg(not(windows))]
+    insta::assert_debug_snapshot!(error_snapshots, "reference with equally named empty or non empty directory already in place can potentially recover", @r#"
+    [
+        Could not commit reference, "reference"="HEAD"
+        |
+        └─ I/O error (Other)
+        |
+        └─ I/O error (Other)
+        |
+        └─ Directory not empty,
+    ]
+    "#);
+    Ok(())
+}
+
+#[test]
+fn reference_with_old_value_must_exist_when_creating_it() -> Result {
+    let (_keep, store) = empty_store()?;
+
+    let new_target = Target::Object(crate::fixture_hash_kind().null());
+    let res = store.transaction().prepare(
+        Some(RefEdit::update(
+            "HEAD".try_into()?,
+            new_target.clone(),
+            PreviousValue::MustExist,
+            "",
+        )),
+        Fail::Immediately,
+        Fail::Immediately,
+    );
+
+    let err = res.expect_err("the previous reference must exist");
+    insta::assert_debug_snapshot!(err, "reference with old value must exist when creating it", @r#"
+    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    |
+    └─ The reference to update must exist
+    "#);
+    assert!(err.is_not_found());
+    assert_eq!(
+        err.metadata().next().expect("failed edit")["reference"],
+        legix_error::MetadataValue::from(b"HEAD".as_slice())
+    );
+    Ok(())
+}
+
+#[test]
+fn reference_with_explicit_value_must_match_the_value_on_update() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.try_find_loose("HEAD")?.expect("head exists already");
+    let target = head.target;
+
+    let res = store.transaction().prepare(
+        Some(RefEdit::update(
+            "HEAD".try_into()?,
+            Target::Object(crate::fixture_hash_kind().null()),
+            PreviousValue::MustExistAndMatch(Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242"))),
+            "",
+        )),
+        Fail::Immediately,
+        Fail::Immediately,
+    );
+    let err = res.expect_err("the transaction constraint is violated").into_error();
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
+    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    |
+    └─ Expected reference content Oid(1)
+    |
+    └─ The reference "HEAD" changed to ref: refs/heads/main
+    "#);
+    let actual = err
+        .downcast_any_ref::<transaction::prepare::ReferenceOutOfDate>()
+        .expect("typed recovery signal");
+    assert_eq!(actual.full_name, "HEAD");
+    assert_eq!(actual.actual, target);
+    assert!(!err.can_retry(), "retrying requires reconciling the current value");
+    Ok(())
+}
+
+#[test]
+fn the_existing_must_match_constraint_allow_non_existing_references_to_be_created() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let expected = PreviousValue::ExistingMustMatch(Target::Object(ObjectId::empty_tree(crate::fixture_hash_kind())));
+    let mut buf = TimeBuf::default();
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                "refs/heads/new".try_into()?,
+                Target::Object(crate::fixture_hash_kind().null()),
+                expected.clone(),
+                "",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut buf))?;
+
+    assert_eq!(
+        edits,
+        vec![RefEdit::new(
+            "refs/heads/new".try_into()?,
+            Change::Update {
+                log: LogChange::default(),
+                new: Target::Object(crate::fixture_hash_kind().null()),
+                expected,
+            },
+        )]
+    );
+    Ok(())
+}
+
+#[test]
+fn the_existing_must_match_constraint_requires_existing_references_to_have_the_given_value_to_cause_failure_on_mismatch()
+-> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.try_find_loose("HEAD")?.expect("head exists already");
+    let target = head.target;
+
+    let res = store.transaction().prepare(
+        Some(RefEdit::update(
+            "HEAD".try_into()?,
+            Target::Object(crate::fixture_hash_kind().null()),
+            PreviousValue::ExistingMustMatch(Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242"))),
+            "",
+        )),
+        Fail::Immediately,
+        Fail::Immediately,
+    );
+    let err = res.expect_err("the transaction constraint is violated").into_error();
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
+    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    |
+    └─ Expected reference content Oid(1)
+    |
+    └─ The reference "HEAD" changed to ref: refs/heads/main
+    "#);
+    let actual = err
+        .downcast_any_ref::<transaction::prepare::ReferenceOutOfDate>()
+        .expect("typed recovery signal");
+    assert_eq!(actual.full_name, "HEAD");
+    assert_eq!(actual.actual, target);
+    assert!(!err.can_retry(), "retrying requires reconciling the current value");
+    Ok(())
+}
+
+#[test]
+fn reference_with_must_not_exist_constraint_cannot_be_created_if_it_exists_already() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.try_find_loose("HEAD")?.expect("head exists already");
+    let target = head.target;
+
+    let res = store
+        .transaction()
+        .prepare(Some(create_at("HEAD")), Fail::Immediately, Fail::Immediately);
+    let err = res.expect_err("the transaction constraint is violated").into_error();
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "retrying requires reconciling the current value", @r#"
+    Could not prepare reference edit, "reference"="HEAD", "referent"="HEAD"
+    |
+    └─ Expected the reference not to exist when writing Oid(1)
+    |
+    └─ The reference "HEAD" already exists with content ref: refs/heads/main
+    "#);
+    let actual = err
+        .downcast_any_ref::<transaction::prepare::MustNotExist>()
+        .expect("typed recovery signal");
+    assert_eq!(actual.full_name, "HEAD");
+    assert_eq!(actual.actual, target);
+    assert!(!err.can_retry(), "retrying requires reconciling the current value");
+    Ok(())
+}
+
+#[test]
+fn namespaced_updates_or_deletions_are_transparent_and_not_observable() -> Result {
+    let (_keep, mut store) = empty_store()?;
+    store.namespace = legix_ref::namespace::expand("foo")?.into();
+    let actual = vec![
+        delete_at("refs/for/deletion"),
+        create_symbolic_at("HEAD", "refs/heads/hello"),
+    ];
+    let edits = store
+        .transaction()
+        .prepare(actual.clone(), Fail::Immediately, Fail::Immediately)?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(edits, actual);
+    Ok(())
+}
+
+#[test]
+fn reference_with_must_exist_constraint_must_exist_already_with_any_value() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.try_find_loose("HEAD")?.expect("head exists already");
+    let target = head.target;
+    let previous_reflog_count = reflog_lines(&store, "HEAD")?.len();
+
+    let new_target = Target::Object(ObjectId::empty_tree(crate::fixture_hash_kind()));
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                "HEAD".try_into()?,
+                new_target.clone(),
+                PreviousValue::MustExist,
+                "",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(
+        edits,
+        vec![RefEdit::update(
+            "HEAD".try_into()?,
+            new_target,
+            PreviousValue::MustExistAndMatch(target),
+            "",
+        )]
+    );
+
+    assert_eq!(
+        reflog_lines(&store, "HEAD")?.len(),
+        previous_reflog_count + 1,
+        "a new reflog is added"
+    );
+    Ok(())
+}
+
+#[test]
+fn reference_with_must_not_exist_constraint_may_exist_already_if_the_new_value_matches_the_existing_one() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.try_find_loose("HEAD")?.expect("head exists already");
+    let target = head.target;
+    let previous_reflog_count = reflog_lines(&store, "HEAD")?.len();
+
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                "HEAD".try_into()?,
+                target.clone(),
+                PreviousValue::MustNotExist,
+                "",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(
+        edits,
+        vec![RefEdit::update(
+            "HEAD".try_into()?,
+            target.clone(),
+            PreviousValue::MustExistAndMatch(target),
+            "",
+        )]
+    );
+
+    assert_eq!(
+        reflog_lines(&store, "HEAD")?.len(),
+        previous_reflog_count,
+        "no new reflog is actually added"
+    );
+    Ok(())
+}
+
+#[test]
+fn cancellation_after_preparation_leaves_no_change() -> Result {
+    let (dir, store) = empty_store()?;
+
+    let tx = store.transaction();
+
+    assert_eq!(
+        std::fs::read_dir(dir.path())?.count(),
+        0,
+        "nothing happens before preparation"
+    );
+
+    let tx = tx.prepare(
+        Some(create_symbolic_at("HEAD", "refs/heads/main")),
+        Fail::Immediately,
+        Fail::Immediately,
+    )?;
+    assert_eq!(std::fs::read_dir(dir.path())?.count(), 1, "the lock file was created");
+
+    drop(tx);
+    assert_eq!(std::fs::read_dir(dir.path())?.count(), 0, "everything vanished");
+    Ok(())
+}
+
+#[test]
+fn symbolic_reference_writes_reflog_if_previous_value_is_set() -> Result {
+    let (_keep, store) = empty_store()?;
+    let referent = "refs/heads/alt-main";
+    assert!(
+        store.try_find_loose(referent)?.is_none(),
+        "the reference does not exist"
+    );
+    let log = LogChange {
+        mode: RefLog::AndReference,
+        force_create_reflog: false,
+        message: "message".into(),
+    };
+    let new_head_value = Target::Symbolic(referent.try_into().unwrap());
+    let new_oid = hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242");
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::new(
+                "refs/heads/symbolic".try_into()?,
+                Change::Update {
+                    log,
+                    new: new_head_value,
+                    expected: PreviousValue::ExistingMustMatch(Target::Object(new_oid)),
+                },
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+    assert_eq!(edits.len(), 1, "no split was performed");
+    let head = store.find_loose(&edits[0].name)?;
+    assert_eq!(head, "refs/heads/symbolic");
+    assert_eq!(head.kind(), legix_ref::Kind::Symbolic);
+    assert_eq!(
+        head.target.to_ref().try_name().map(legix_ref::FullNameRef::as_bstr),
+        Some(referent.as_bytes().as_bstr())
+    );
+    assert!(
+        head.log_exists(&store),
+        "reflog is written for new symbolic ref with information about the peeled target id, \
+         as special accommodation for the state during clone to allow us to get a peeled id into the log"
+    );
+    assert!(store.try_find_loose(referent)?.is_none(), "referent wasn't created");
+
+    Ok(())
+}
+
+#[test]
+fn windows_device_name_is_illegal_with_enabled_windows_protections() -> Result {
+    let mut error_snapshots = Vec::new();
+    let (_keep, mut store) = empty_store()?;
+    store.prohibit_windows_device_names = true;
+    let log_ignored = LogChange {
+        mode: RefLog::AndReference,
+        force_create_reflog: false,
+        message: "ignored".into(),
+    };
+
+    let new = Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242"));
+    for invalid_name in ["refs/heads/CON", "refs/CON/still-invalid"] {
+        let err = store
+            .transaction()
+            .prepare(
+                Some(RefEdit::update_with_log(
+                    invalid_name.try_into()?,
+                    new.clone(),
+                    PreviousValue::Any,
+                    log_ignored.clone(),
+                )),
+                Fail::Immediately,
+                Fail::Immediately,
+            )
+            .unwrap_err();
+        error_snapshots.push(legix_testtools::redact_debug_snapshot(&(err), &[]));
+    }
+
+    #[cfg(not(windows))]
+    {
+        store.prohibit_windows_device_names = false;
+        let _prepared_transaction = store.transaction().prepare(
+            Some(RefEdit::new(
+                "refs/heads/CON".try_into()?,
+                Change::Update {
+                    log: log_ignored.clone(),
+                    new,
+                    expected: PreviousValue::Any,
+                },
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?;
+    }
+
+    insta::assert_debug_snapshot!(error_snapshots, "windows device name is illegal with enabled windows protections", @r#"
+    [
+        Could not prepare reference edit, "reference"="refs/heads/CON", "referent"="refs/heads/CON"
+        |
+        └─ Invalid reference filename
+        |
+        └─ I/O error (Other)
+        |
+        └─ Illegal use of reserved Windows device name in "refs/heads/CON",
+        Could not prepare reference edit, "reference"="refs/CON/still-invalid", "referent"="refs/CON/still-invalid"
+        |
+        └─ Invalid reference filename
+        |
+        └─ I/O error (Other)
+        |
+        └─ Illegal use of reserved Windows device name in "refs/CON/still-invalid",
+    ]
+    "#);
+    Ok(())
+}
+
+/// Regression test for the ordering of validation vs. lock acquisition.
+///
+/// On Windows, the lock path `refs/heads/CON.lock` is itself a reserved device
+/// name, so acquiring it would fail (or accidentally open the device) before
+/// the configured device-name validation could run. We can't observe that on
+/// non-Windows directly, but we can demonstrate the ordering by pre-creating
+/// the would-be lock file: if device-name validation runs first we still get
+/// the validation error; if lock acquisition runs first we'd get
+/// `LockAcquire(PermanentlyLocked)` instead.
+#[cfg(not(windows))]
+#[test]
+fn windows_device_name_check_runs_before_lock_acquisition() -> Result {
+    let (keep, mut store) = empty_store()?;
+    store.prohibit_windows_device_names = true;
+
+    let refs_heads = keep.path().join("refs").join("heads");
+    std::fs::create_dir_all(&refs_heads)?;
+    std::fs::write(refs_heads.join("CON.lock"), b"")?;
+
+    let err = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                "refs/heads/CON".try_into()?,
+                Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242")),
+                PreviousValue::Any,
+                "ignored",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )
+        .unwrap_err();
+
+    insta::assert_debug_snapshot!(err.downcast_any_ref::<std::io::Error>()
+            .expect("original I/O failure"), "device-name validation must short-circuit before lock acquisition; otherwise the \
+         pre-existing lock file would surface as `LockAcquire(PermanentlyLocked)`", @r#"
+    Custom {
+        kind: Other,
+        error: "Illegal use of reserved Windows device name in \"refs/heads/CON\"",
+    }
+    "#);
+    Ok(())
+}
+
+#[test]
+fn lock_failure_on_symbolic_referent_is_reported_for_the_symbolic_ref() -> Result {
+    let (keep, store) = empty_store()?;
+    std::fs::write(keep.path().join("HEAD"), b"ref: refs/heads/main\n")?;
+    std::fs::create_dir_all(keep.path().join("refs/heads"))?;
+    std::fs::write(keep.path().join("refs/heads/main.lock"), b"")?;
+
+    let err = store
+        .transaction()
+        .prepare(
+            Some(
+                RefEdit::update(
+                    "HEAD".try_into()?,
+                    Target::Object(hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242")),
+                    PreviousValue::Any,
+                    "",
+                )
+                .with_deref(true),
+            ),
+            Fail::Immediately,
+            Fail::Immediately,
+        )
+        .unwrap_err();
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[(&(store.git_dir()).to_string_lossy(), "<git-dir>")]), "the original lock failure is classifiable", @r#"
+    Could not prepare reference edit, "reference"="HEAD", "referent"="refs/heads/main"
+    |
+    └─ The lock for resource '<git-dir>/refs/heads/main' could not be obtained immediately after 1 attempt(s). The lockfile at '<git-dir>/refs/heads/main.lock' might need manual deletion.
+    |
+    └─ I/O error (AlreadyExists)
+    |
+    └─ AlreadyExists at path "<git-dir>/refs/heads/main.lock"
+    "#);
+
+    assert!(err.can_retry(), "the original lock failure is classifiable");
+    let details = err.metadata().next().expect("failed edit");
+    assert_eq!(
+        details["reference"],
+        legix_error::MetadataValue::from(b"HEAD".as_slice()),
+        "the failed edit identifies the symbolic reference requested by the caller"
+    );
+    assert_eq!(
+        details["referent"],
+        legix_error::MetadataValue::from(b"refs/heads/main".as_slice()),
+        "the actual locked referent is retained as well"
+    );
+    Ok(())
+}
+
+#[test]
+fn symbolic_head_missing_referent_then_update_referent() -> Result {
+    for reflog_writemode in &[WriteReflog::Normal, WriteReflog::Disable, WriteReflog::Always] {
+        let (_keep, mut store) = empty_store()?;
+        store.write_reflog = *reflog_writemode;
+        let referent = "refs/heads/alt-main";
+        assert!(
+            store.try_find_loose(referent)?.is_none(),
+            "the reference does not exist"
+        );
+        let log_ignored = LogChange {
+            mode: RefLog::AndReference,
+            force_create_reflog: false,
+            message: "ignored".into(),
+        };
+        let new_head_value = Target::Symbolic(referent.try_into().unwrap());
+        let mut buf = TimeBuf::default();
+        let edits = store
+            .transaction()
+            .prepare(
+                Some(RefEdit::update_with_log(
+                    "HEAD".try_into()?,
+                    new_head_value.clone(),
+                    PreviousValue::MustNotExist,
+                    log_ignored.clone(),
+                )),
+                Fail::Immediately,
+                Fail::Immediately,
+            )?
+            .commit(committer().to_ref(&mut buf))?;
+        assert_eq!(
+            edits,
+            vec![RefEdit::update_with_log(
+                "HEAD".try_into()?,
+                new_head_value.clone(),
+                PreviousValue::MustNotExist,
+                log_ignored.clone(),
+            )],
+            "no split was performed"
+        );
+
+        let head = store.find_loose(&edits[0].name)?;
+        assert_eq!(head, "HEAD");
+        assert_eq!(head.kind(), legix_ref::Kind::Symbolic);
+        assert_eq!(
+            std::fs::read_to_string(store.git_dir().join("HEAD"))?,
+            "ref: refs/heads/alt-main\n",
+            "note the newline - symbolic refs really want a newline just like git does it, otherwise some tools may break"
+        );
+        assert_eq!(
+            head.target.to_ref().try_name().map(legix_ref::FullNameRef::as_bstr),
+            Some(referent.as_bytes().as_bstr())
+        );
+        assert!(!head.log_exists(&store), "no reflog is written for symbolic ref");
+        assert!(store.try_find_loose(referent)?.is_none(), "referent wasn't created");
+
+        let new_oid = hex_to_id("28ce6a8b26aa170e1de65536fe8abe1832bd3242");
+        let new = Target::Object(new_oid);
+        let log = LogChange {
+            message: "an actual change".into(),
+            mode: RefLog::AndReference,
+            force_create_reflog: false,
+        };
+        let edits = store
+            .transaction()
+            .prepare(
+                Some(
+                    RefEdit::update_with_log("HEAD".try_into()?, new.clone(), PreviousValue::Any, log.clone())
+                        .with_deref(true),
+                ),
+                Fail::Immediately,
+                Fail::Immediately,
+            )?
+            .commit(committer().to_ref(&mut buf))?;
+
+        assert_eq!(
+            edits,
+            vec![
+                RefEdit::update_with_log(
+                    "HEAD".try_into()?,
+                    new.clone(),
+                    PreviousValue::MustExistAndMatch(new_head_value.clone()),
+                    {
+                        let mut l = log.clone();
+                        l.mode = RefLog::Only;
+                        l
+                    },
+                ),
+                // There is no previous value, so we can't put `MustExistAndMatch` here.
+                RefEdit::update_with_log(referent.try_into()?, new.clone(), PreviousValue::Any, log)
+            ]
+        );
+
+        let head = store.find_loose("HEAD")?;
+        assert_eq!(
+            head.kind(),
+            legix_ref::Kind::Symbolic,
+            "head is still symbolic, not detached"
+        );
+        assert_eq!(
+            head.target.to_ref().try_name().map(legix_ref::FullNameRef::as_bstr),
+            Some(referent.as_bytes().as_bstr()),
+            "it still points to the referent"
+        );
+
+        let referent_ref = store.find_loose(referent)?;
+        assert_eq!(referent_ref.kind(), legix_ref::Kind::Object, "referent is a peeled ref");
+        assert_eq!(
+            referent_ref.target.to_ref().try_id(),
+            Some(new_oid.as_ref()),
+            "referent points to desired hash"
+        );
+
+        let mut buf = Vec::new();
+        for ref_name in &["HEAD", referent] {
+            match reflog_writemode {
+                WriteReflog::Normal | WriteReflog::Always => {
+                    let expected_line = log_line(crate::fixture_hash_kind().null(), new_oid, "an actual change");
+                    assert_eq!(reflog_lines(&store, ref_name)?, vec![expected_line]);
+                }
+                WriteReflog::Disable => {
+                    assert!(
+                        store.reflog_iter(*ref_name, &mut buf)?.is_none(),
+                        "nothing is ever written if its disabled"
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+/// Writing a peeled ref to which head points to doesn't update HEAD on the fly even though that might be what's would
+/// be needed to keep the reflog consistent
+fn write_reference_to_which_head_points_to_does_not_update_heads_reflog_even_though_it_should() -> Result {
+    let (_keep, store) = store_writable("make_repo_for_reflog.sh")?;
+    let head = store.find_loose("HEAD")?;
+    let referent = head.target.to_ref().try_name().expect("symbolic ref").to_owned();
+    let previous_head_reflog = reflog_lines(&store, "HEAD")?;
+
+    let new_id = hex_to_id("01dd4e2a978a9f5bd773dae6da7aa4a5ac1cdbbc");
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                referent.as_bstr().try_into()?,
+                Target::Object(new_id),
+                PreviousValue::MustExist,
+                "",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(edits.len(), 1, "HEAD wasn't update");
+    assert_eq!(
+        edits,
+        vec![RefEdit::update(
+            referent.as_bstr().try_into()?,
+            Target::Object(new_id),
+            PreviousValue::MustExistAndMatch(Target::Object(hex_to_id("02a7a22d90d7c02fb494ed25551850b868e634f0"))),
+            "",
+        )]
+    );
+    assert_eq!(
+        reflog_lines(&store, "HEAD")?,
+        previous_head_reflog,
+        "nothing changed in the heads reflog"
+    );
+
+    let expected_line = log_line(hex_to_id("02a7a22d90d7c02fb494ed25551850b868e634f0"), new_id, "");
+    assert_eq!(
+        reflog_lines(&store, &referent.to_string())?
+            .last()
+            .expect("at least one line"),
+        &expected_line,
+        "referent line matches the expected one"
+    );
+    Ok(())
+}
+
+#[test]
+fn packed_refs_are_looked_up_when_checking_existing_values() -> Result {
+    let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
+    assert!(
+        store.try_find_loose("main")?.is_none(),
+        "no loose main available, it's packed"
+    );
+    let new_id = hex_to_id("0000000000000000000000000000000000000001");
+    let old_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
+    let edits = store
+        .transaction()
+        .prepare(
+            Some(RefEdit::update(
+                "refs/heads/main".try_into()?,
+                Target::Object(new_id),
+                PreviousValue::MustExistAndMatch(Target::Object(old_id)),
+                "for pack",
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(edits.len(), 1, "only one edit was performed in the loose refs store");
+
+    let packed = store.open_packed_buffer().unwrap().expect("packed refs is available");
+    assert_eq!(
+        packed.find("main")?.target(),
+        old_id,
+        "packed refs aren't rewritten, the change goes into the loose ref instead which shadows packed refs of same name"
+    );
+    assert_eq!(
+        store.find_loose("main")?.target.try_id(),
+        Some(new_id.as_ref()),
+        "the new id was written to the loose ref"
+    );
+    assert_eq!(
+        std::fs::read_to_string(store.common_dir_resolved().join("refs/heads/main"))?,
+        format!("{}\n", new_id.to_hex()),
+        "the loose ref is stored on disk as the full OID followed by a newline"
+    );
+    Ok(())
+}
+
+#[test]
+fn packed_refs_creation_with_tag_loop_are_not_handled_and_cannot_exist_due_to_object_hashes() {
+    // Tag loops cannot exist as you cannot create them thanks to hashing.
+}
+
+#[test]
+fn packed_refs_creation_with_packed_refs_mode_prune_removes_original_loose_refs() -> Result {
+    let (_keep, store) = store_writable("make_ref_repository.sh")?;
+    assert!(
+        store.open_packed_buffer()?.is_none(),
+        "there should be no packed refs to start out with"
+    );
+    let odb = crate::file::odb_at(store.git_dir().join("objects"))?;
+    let edits = store
+        .transaction()
+        .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdatesRemoveLooseSourceReference(
+            Box::new(odb),
+        ))
+        .prepare(
+            store
+                .loose_iter()?
+                .filter_map(|r| r.ok().filter(|r| r.kind() == legix_ref::Kind::Object))
+                .map(|r| RefEdit::update(r.name, r.target.clone(), PreviousValue::MustExistAndMatch(r.target), "")),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(
+        edits.len(),
+        11,
+        "there are a certain amount of loose refs that are packed"
+    );
+
+    assert!(
+        store
+            .loose_iter()?
+            .filter_map(std::result::Result::ok)
+            .all(|r| r.kind() == legix_ref::Kind::Symbolic),
+        "only symbolic refs are left"
+    );
+
+    let other_store = store_with_packed_refs()?;
+    let expected_pack_data: BString = std::fs::read(other_store.packed_refs_path())?.into();
+    let actual_packed_data: BString = std::fs::read(store.packed_refs_path())?.into();
+    assert_eq!(
+        actual_packed_data, expected_pack_data,
+        "both gitoxide and git must agree on the packed refs file perfectly"
+    );
+    Ok(())
+}
+
+#[test]
+fn packed_refs_creation_with_packed_refs_mode_leave_keeps_original_loose_refs() -> Result {
+    let (_keep, store) = store_writable("make_packed_ref_repository_for_overlay.sh")?;
+    let branch = store.find("newer-as-loose")?;
+    let packed = store.open_packed_buffer()?.expect("packed-refs");
+    assert_ne!(
+        packed.find("newer-as-loose")?.target(),
+        branch.target.try_id().expect("peeled"),
+        "the packed ref is outdated"
+    );
+    let previous_reflog_entries = branch.log_iter(&store).all()?.expect("log").count();
+    let previous_packed_refs = packed.iter()?.filter_map(std::result::Result::ok).count();
+
+    let edits = store
+        .loose_iter()?
+        .map(|r| r.expect("valid ref"))
+        .map(|r| RefEdit::update(r.name, r.target.clone(), PreviousValue::MustExistAndMatch(r.target), ""));
+
+    let edits = store
+        .transaction()
+        .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdates(Box::new(EmptyCommit)))
+        .prepare(edits, Fail::Immediately, Fail::Immediately)?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+    assert_eq!(
+        edits.len(),
+        2,
+        "it claims to have performed all desired operations, even though some don't make it into the pack as 'side-car'"
+    );
+
+    assert_eq!(
+        store.loose_iter()?.filter_map(std::result::Result::ok).count(),
+        edits.len(),
+        "the amount of loose refs didn't change and having symbolic ones isn't a problem"
+    );
+    assert_eq!(
+        branch.log_iter(&store).all()?.expect("log").count(),
+        previous_reflog_entries,
+        "reflog isn't adjusted as there is no change"
+    );
+
+    let packed = store.open_packed_buffer()?.expect("packed-refs");
+    assert_eq!(
+        packed.iter()?.filter_map(std::result::Result::ok).count(),
+        previous_packed_refs,
+        "the amount of packed refs doesn't change"
+    );
+    assert_eq!(
+        packed.find("newer-as-loose")?.target(),
+        store.find("newer-as-loose")?.target.into_id(),
+        "the packed ref is now up to date and the loose ref definitely still exists"
+    );
+    Ok(())
+}
+
+#[test]
+fn packed_refs_deletion_in_deletions_and_updates_mode() -> Result {
+    let (_keep, store) = store_writable("make_packed_ref_repository.sh")?;
+    assert!(
+        store.try_find_loose("refs/heads/d1")?.is_none(),
+        "no loose d1 available, it's packed"
+    );
+    let odb = crate::file::odb_at(store.git_dir().join("objects"))?;
+    let old_id = hex_to_id("134385f6d781b7e97062102c6a483440bfda2a03");
+    let edits = store
+        .transaction()
+        .packed_refs(PackedRefs::DeletionsAndNonSymbolicUpdates(Box::new(odb)))
+        .prepare(
+            Some(RefEdit::delete(
+                "refs/heads/d1".try_into()?,
+                PreviousValue::MustExistAndMatch(Target::Object(old_id)),
+            )),
+            Fail::Immediately,
+            Fail::Immediately,
+        )?
+        .commit(committer().to_ref(&mut TimeBuf::default()))?;
+
+    assert_eq!(edits.len(), 1, "only one edit was performed in the packed refs store");
+
+    let packed = store.open_packed_buffer().unwrap().expect("packed refs is available");
+    assert!(
+        packed.try_find("refs/heads/d1")?.is_none(),
+        "d1 should be removed from packed refs"
+    );
+    Ok(())
+}

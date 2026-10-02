@@ -1,0 +1,138 @@
+use crate::Result;
+use legix_error::ExnMessageResult;
+use std::path::Path;
+
+#[test]
+fn consuming_the_entire_prefix_does_not_lead_to_a_single_dot() -> Result {
+    let spec = normalized_spec("..", "a", "")?;
+    assert_eq!(
+        spec.path(),
+        ".",
+        "the top-level of the worktree can take the special value '.' to mean 'everything'"
+    );
+    assert!(
+        spec.is_nil(),
+        "single is for the worktree top-level, and since it wouldn't match anything we make it nil so it does"
+    );
+    assert_eq!(spec.prefix_directory(), "", "there is no prefix left");
+    Ok(())
+}
+
+#[test]
+fn removes_relative_path_components() -> Result {
+    for (input_path, expected_path, expected_prefix) in [
+        ("..", "a", ""),
+        ("c", "a/b/c", "a/b"),
+        ("../c", "a/c", "a"),
+        ("../b/c", "a/b/c", "a"), // this is a feature - prefix components once consumed by .. are lost. Important as paths can contain globs
+        ("../*c/d", "a/*c/d", "a"),
+        ("../../c/d", "c/d", ""),
+        ("../../c/d/", "c/d", ""),
+        ("./c", "a/b/c", "a/b"),
+        ("../../c", "c", ""),
+        ("../..", ".", ""),
+        ("../././c", "a/c", "a"),
+        ("././/./c", "a/b/c", "a/b"),
+        ("././/./c/", "a/b/c", "a/b"),
+        ("././/./../c/d/", "a/c/d", "a"),
+    ] {
+        let spec = normalized_spec(input_path, "a/b", "")?;
+        assert_eq!(spec.path(), expected_path);
+        assert_eq!(
+            spec.prefix_directory(),
+            expected_prefix,
+            "{input_path} -> {expected_path}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn single_dot_is_special_and_directory_is_implied_without_trailing_slash() -> Result {
+    for (input_path, expected) in [(".", "."), ("./", ".")] {
+        let spec = normalized_spec(input_path, "", "/repo")?;
+        assert_eq!(spec.path(), expected);
+        assert!(spec.is_nil(), "such a spec has to match everything");
+        assert_eq!(spec.prefix_directory(), "");
+    }
+    Ok(())
+}
+
+#[test]
+fn absolute_path_made_relative() -> Result {
+    for (input_path, expected, prefix_dir) in [
+        ("/repo/a", "a", ""),
+        ("/repo/a/..//.///b", "b", ""),
+        ("/repo/a/", "a", "a"),
+        ("/repo/*/", "*", "*"),
+        ("/repo/a/b", "a/b", "a"),
+        ("/repo/*/b", "*/b", "*"), // we assume literal paths if specs are absolute
+        ("/repo/a/*/", "a/*", "a/*"),
+        ("/repo/a/b/", "a/b", "a/b"),
+        ("/repo/a/b/*", "a/b/*", "a/b"),
+        ("/repo/a/b/c/..", "a/b", "a"),
+    ] {
+        let spec = normalized_spec(input_path, "", "/repo")?;
+        assert_eq!(spec.path(), expected);
+        assert_eq!(spec.prefix_directory(), prefix_dir, "{input_path}");
+    }
+    Ok(())
+}
+
+#[test]
+fn relative_top_patterns_ignore_the_prefix() -> Result {
+    let spec = normalized_spec(":(top)c", "a/b", "")?;
+    assert_eq!(spec.path(), "c");
+    assert_eq!(spec.prefix_directory(), "");
+    Ok(())
+}
+
+#[test]
+fn absolute_top_patterns_ignore_the_prefix_but_are_made_relative() -> Result {
+    let spec = normalized_spec(":(top)/a/b", "prefix-ignored", "/a")?;
+    assert_eq!(spec.path(), "b");
+    assert_eq!(spec.prefix_directory(), "");
+    Ok(())
+}
+
+#[test]
+fn relative_path_breaks_out_of_working_tree() {
+    let err = normalized_spec("../a", "", "").unwrap_err();
+    insta::assert_debug_snapshot!(err, "relative path breaks out of working tree", @r#"The path leaves the repository, "input"="../a""#);
+    assert_eq!(err.values["input"], legix_error::MetadataValue::from(b"../a".as_slice()));
+    let err = normalized_spec("../../b", "a", "").unwrap_err();
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&err, &[(r"a\../../b", "a/../../b")]), "relative path breaks out of working tree", @r#"The path leaves the repository, "input"="a/../../b""#);
+    assert_eq!(
+        err.values["input"],
+        legix_error::MetadataValue::from((if cfg!(windows) { r"a\../../b" } else { "a/../../b" }).as_bytes())
+    );
+}
+
+#[test]
+fn absolute_path_breaks_out_of_working_tree() {
+    let err = normalized_spec("/path/to/repo/..///./a", "", "/path/to/repo").unwrap_err();
+    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, "input"="..///./a""#);
+    assert_eq!(
+        err.values["input"],
+        legix_error::MetadataValue::from(b"..///./a".as_slice())
+    );
+    let err = normalized_spec("/path/to/repo/../../../dev", "", "/path/to/repo").unwrap_err();
+    insta::assert_debug_snapshot!(err, "absolute path breaks out of working tree", @r#"The path leaves the repository, "input"="../../../dev""#);
+    assert_eq!(
+        err.values["input"],
+        legix_error::MetadataValue::from(b"../../../dev".as_slice())
+    );
+}
+
+#[test]
+fn absolute_path_escapes_worktree() {
+    let err = normalized_spec("/dev", "", "/path/to/repo").expect_err("the path is outside of the worktree");
+    insta::assert_debug_snapshot!(err, "absolute path escapes worktree", @r#"The path is not inside of the worktree '/path/to/repo', "input"="/dev""#);
+    assert_eq!(err.values["input"], legix_error::MetadataValue::from(b"/dev".as_slice()));
+}
+
+fn normalized_spec(path: &str, prefix: &str, root: &str) -> ExnMessageResult<legix_pathspec::Pattern> {
+    let mut spec = legix_pathspec::parse(path.as_bytes(), Default::default()).expect("valid");
+    spec.normalize(Path::new(prefix), Path::new(root))?;
+    Ok(spec)
+}

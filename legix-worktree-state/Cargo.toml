@@ -1,0 +1,51 @@
+lints.workspace = true
+
+[package]
+name = "legix-worktree-state"
+version = "0.35.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project implementing setting the worktree to a particular state"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-index/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-index/sha256"]
+## Enable support for thread-safety.
+parallel = ["legix-features/parallel"]
+
+[dependencies]
+legix-worktree = { version = "^0.57.0", path = "../legix-worktree", default-features = false, features = ["attributes"] }
+legix-index = { version = "^0.56.0", path = "../legix-index" }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-features = { version = "^0.50.0", path = "../legix-features" }
+legix-filter = { version = "^0.35.0", path = "../legix-filter" }
+
+io-close = "0.3.7"
+bstr = { version = "1.12.0", default-features = false }
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-worktree-state = { path = ".", features = ["sha1", "sha256"] }
+legix-object = { path = "../legix-object" }
+legix-filter = { path = "../legix-filter" }
+legix-index = { path = "../legix-index", features = ["sha1", "sha256"] }
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-fs = { path = "../legix-fs" }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-odb = { path = "../legix-odb", features = ["sha1", "sha256"] }
+walkdir = "2.3.2"
+
+[package.metadata.docs.rs]
+features = ["sha1"]

@@ -5,7 +5,7 @@ pub(super) mod function {
         path::{Path, PathBuf},
     };
 
-    use gix::{
+    use legix::{
         bstr::{BString, ByteSlice},
         objs::FindExt,
     };
@@ -40,7 +40,7 @@ pub(super) mod function {
             })
             .collect();
 
-        let repo = gix::open_opts(worktree_dir, gix::open::Options::isolated())?;
+        let repo = legix::open_opts(worktree_dir, legix::open::Options::isolated())?;
 
         let asset_dir = asset_dir.unwrap_or("assets".into());
         let assets = destination_dir.join(asset_dir.to_os_str()?);
@@ -82,14 +82,14 @@ mkdir -p assets
                 let old_blob = repo
                     .objects
                     .find_blob(&old_blob_id, &mut buf)
-                    .map_err(gix::Exn::into_error)?
+                    .map_err(legix::Exn::into_error)?
                     .data;
                 std::fs::write(dst_old_blob, old_blob)?;
 
                 let new_blob = repo
                     .objects
                     .find_blob(&new_blob_id, &mut buf)
-                    .map_err(gix::Exn::into_error)?
+                    .map_err(legix::Exn::into_error)?
                     .data;
                 std::fs::write(dst_new_blob, new_blob)?;
             }

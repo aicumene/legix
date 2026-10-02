@@ -1,0 +1,40 @@
+lints.workspace = true
+
+[package]
+name = "legix-negotiate"
+version = "0.36.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project implementing negotiation algorithms"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[lib]
+doctest = false
+test = false
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-hash/sha256"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+legix-commitgraph = { version = "^0.40.0", path = "../legix-commitgraph" }
+legix-revwalk = { version = "^0.36.0", path = "../legix-revwalk" }
+bitflags = "2"
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools" }
+legix-odb = { path = "../legix-odb", features = ["sha1", "sha256"] }
+legix-ref = { path = "../legix-ref", features = ["sha1", "sha256"] }
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+
+[package.metadata.docs.rs]
+features = ["sha1"]

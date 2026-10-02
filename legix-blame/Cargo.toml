@@ -1,0 +1,46 @@
+lints.workspace = true
+
+[package]
+name = "legix-blame"
+version = "0.18.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project dedicated to implementing a 'blame' algorithm"
+authors = ["Christoph Rüßler <christoph.ruessler@mailbox.org>", "Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*"]
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-hash/sha256"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-commitgraph = { version = "^0.40.0", path = "../legix-commitgraph" }
+legix-revwalk = { version = "^0.36.0", path = "../legix-revwalk" }
+legix-trace = { version = "^0.2.0", path = "../legix-trace" }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+legix-diff = { version = "^0.68.0", path = "../legix-diff", default-features = false, features = ["blob"] }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-worktree = { version = "^0.57.0", path = "../legix-worktree", default-features = false, features = ["attributes"] }
+legix-traverse = { version = "^0.62.0", path = "../legix-traverse" }
+
+smallvec = "1.15.1"
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-ref = { path = "../legix-ref", features = ["sha1", "sha256"] }
+legix-filter = { path = "../legix-filter" }
+legix-fs = { path = "../legix-fs" }
+legix-index = { path = "../legix-index", features = ["sha1"] }
+legix-odb = { path = "../legix-odb", features = ["sha1"] }
+legix-testtools = { path = "../tests/tools" }
+pretty_assertions = "1.4.0"
+
+[package.metadata.docs.rs]
+features = ["sha1"]

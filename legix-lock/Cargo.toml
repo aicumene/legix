@@ -1,0 +1,26 @@
+lints.workspace = true
+
+[package]
+name = "legix-lock"
+version = "25.0.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A git-style lock-file implementation"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
+rust-version = "1.88"
+
+[lib]
+doctest = true
+test = true
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-utils = { version = "^0.4.0", default-features = false, path = "../legix-utils" }
+legix-tempfile = { version = "^25.0.0", default-features = false, path = "../legix-tempfile" }
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
+insta = { version = "1.46.3", features = ["filters"] }
+tempfile = "3.26.0"

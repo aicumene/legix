@@ -1,0 +1,59 @@
+lints.workspace = true
+
+[package]
+name = "legix-ref"
+version = "0.68.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate to handle git references"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+test = true
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "legix-hash/serde", "legix-actor/serde", "legix-object/serde"]
+## Enable support for thread-safety.
+parallel = ["legix-features/parallel"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-features = { version = "^0.50.0", path = "../legix-features", features = ["walkdir"] }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-utils = { version = "^0.4.0", path = "../legix-utils" }
+legix-validate = { version = "^0.12.0", path = "../legix-validate" }
+legix-actor = { version = "^0.43.0", path = "../legix-actor" }
+legix-lock = { version = "^25.0.0", path = "../legix-lock" }
+legix-tempfile = { version = "^25.0.0", default-features = false, path = "../legix-tempfile" }
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+
+# packed refs
+memmap2 = "0.9.11"
+
+document-features = { version = "0.2.1", optional = true }
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-date = { path = "../legix-date" }
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-discover = { path = "../legix-discover" }
+legix-odb = { path = "../legix-odb" }
+insta = "1.46.3"
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2.186"
+
+[package.metadata.docs.rs]
+features = ["sha1", "document-features", "serde"]

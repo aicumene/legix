@@ -480,17 +480,17 @@ static GIT_CONFIG: &[Record] = &[
 pub fn show_progress() -> anyhow::Result<()> {
     let sorted = {
         let mut v: Vec<_> = GIT_CONFIG.into();
-        v.extend(gix::config::Tree.sections().iter().flat_map(|section| {
-            fn to_record(key: &dyn gix::config::tree::Key) -> Record {
+        v.extend(legix::config::Tree.sections().iter().flat_map(|section| {
+            fn to_record(key: &dyn legix::config::tree::Key) -> Record {
                 let config = key.logical_name();
                 let note = key.note().map(|note| match note {
-                    gix::config::tree::Note::Deviation(n) | gix::config::tree::Note::Informative(n) => n.to_string(),
+                    legix::config::tree::Note::Deviation(n) | legix::config::tree::Note::Informative(n) => n.to_string(),
                 });
                 let link = key.link().map(|link| match link {
-                    gix::config::tree::Link::FallbackKey(key) => {
+                    legix::config::tree::Link::FallbackKey(key) => {
                         format!("fallback is '{fallback}'", fallback = key.logical_name())
                     }
-                    gix::config::tree::Link::EnvironmentOverride(name) => format!("overridden by '{name}'"),
+                    legix::config::tree::Link::EnvironmentOverride(name) => format!("overridden by '{name}'"),
                 });
 
                 let deviation = match (note, link) {

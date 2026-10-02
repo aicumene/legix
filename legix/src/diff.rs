@@ -1,0 +1,208 @@
+use legix_diff::tree::recorder::Location;
+pub use legix_diff::*;
+
+#[cfg(feature = "blob-diff")]
+use crate::Result;
+
+#[cfg(feature = "blob-diff")]
+pub use utils::{new_rewrites, resource_cache};
+
+/// General diff-related options for configuring rename-tracking and blob diffs.
+#[derive(Debug, Copy, Clone)]
+pub struct Options {
+    location: Option<Location>,
+    #[cfg(feature = "blob-diff")]
+    rewrites: Option<legix_diff::Rewrites>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            location: Some(Location::Path),
+            #[cfg(feature = "blob-diff")]
+            rewrites: None,
+        }
+    }
+}
+
+#[cfg(feature = "blob-diff")]
+impl From<Options> for legix_diff::tree_with_rewrites::Options {
+    fn from(opts: Options) -> Self {
+        legix_diff::tree_with_rewrites::Options {
+            location: opts.location,
+            #[cfg(feature = "blob-diff")]
+            rewrites: opts.rewrites,
+        }
+    }
+}
+
+/// Lifecycle
+impl Options {
+    #[cfg(feature = "blob-diff")]
+    pub(crate) fn from_configuration(config: &crate::config::Cache) -> Result<Self> {
+        Ok(Options {
+            location: Some(Location::Path),
+            rewrites: {
+                let (rewrites, is_configured) = config.diff_renames()?;
+                if is_configured {
+                    rewrites
+                } else {
+                    Some(Default::default())
+                }
+            },
+        })
+    }
+}
+
+/// Setters
+impl Options {
+    /// Do not keep track of filepaths at all, which will leave all `location` fields empty.
+    pub fn no_locations(&mut self) -> &mut Self {
+        self.location = None;
+        self
+    }
+
+    /// Keep track of file-names, which makes `location` fields usable with the filename of the changed item.
+    pub fn track_filename(&mut self) -> &mut Self {
+        self.location = Some(Location::FileName);
+        self
+    }
+
+    /// Keep track of the entire path of a change, relative to the repository. (default).
+    ///
+    /// This makes the `location` field fully usable.
+    pub fn track_path(&mut self) -> &mut Self {
+        self.location = Some(Location::Path);
+        self
+    }
+
+    /// Provide `None` to disable rewrite tracking entirely, or pass `Some(<configuration>)` to control to
+    /// what extent rename and copy tracking is performed.
+    ///
+    /// Note that by default, the git configuration determines rewrite tracking and git defaults are used
+    /// if nothing is configured, which turns rename tracking with 50% similarity on, while not tracking copies at all.
+    #[cfg(feature = "blob-diff")]
+    pub fn track_rewrites(&mut self, renames: Option<legix_diff::Rewrites>) -> &mut Self {
+        self.rewrites = renames;
+        self
+    }
+}
+
+/// Builder
+impl Options {
+    /// Provide `None` to disable rewrite tracking entirely, or pass `Some(<configuration>)` to control to
+    /// what extent rename and copy tracking is performed.
+    ///
+    /// Note that by default, the git configuration determines rewrite tracking and git defaults are used
+    /// if nothing is configured, which turns rename tracking with 50% similarity on, while not tracking copies at all.
+    #[cfg(feature = "blob-diff")]
+    pub fn with_rewrites(mut self, renames: Option<legix_diff::Rewrites>) -> Self {
+        self.rewrites = renames;
+        self
+    }
+}
+
+///
+pub mod rename {
+    /// Determine how to do rename tracking.
+    #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+    pub enum Tracking {
+        /// Do not track renames at all, the fastest option.
+        Disabled,
+        /// Track renames.
+        Renames,
+        /// Track renames and copies.
+        ///
+        /// This is the most expensive option.
+        RenamesAndCopies,
+    }
+}
+
+///
+#[cfg(feature = "blob-diff")]
+pub(crate) mod utils {
+    use legix_diff::{Rewrites, rewrites::Copies};
+    use legix_error::ResultExt;
+
+    use crate::{
+        Repository, Result,
+        config::{cache::util::ApplyLeniency, tree::Diff},
+        diff::rename::Tracking,
+    };
+
+    /// Create an instance by reading all relevant information from the `config`uration, while being `lenient` or not.
+    /// Returns `Ok((None, false))` if nothing is configured, or `Ok((None, true))` if it's configured and disabled.
+    ///
+    /// Note that missing values will be defaulted similar to what git does.
+    pub fn new_rewrites(config: &legix_config::File, lenient: bool) -> Result<(Option<Rewrites>, bool)> {
+        new_rewrites_inner(config, lenient, &Diff::RENAMES, &Diff::RENAME_LIMIT)
+    }
+
+    pub(crate) fn new_rewrites_inner(
+        config: &legix_config::File,
+        lenient: bool,
+        renames: &'static crate::config::tree::diff::Renames,
+        rename_limit: &'static crate::config::tree::keys::UnsignedInteger,
+    ) -> Result<(Option<Rewrites>, bool)> {
+        let copies = match renames
+            .try_into_renames(config.boolean(renames))
+            .with_leniency(lenient)
+            .or_erased()?
+        {
+            Some(renames) => match renames {
+                Tracking::Disabled => return Ok((None, true)),
+                Tracking::Renames => None,
+                Tracking::RenamesAndCopies => Some(Copies::default()),
+            },
+            None => return Ok((None, false)),
+        };
+
+        let default = Rewrites::default();
+        Ok((
+            Rewrites {
+                copies,
+                limit: rename_limit
+                    .try_into_usize(config.integer(rename_limit))
+                    .with_leniency(lenient)
+                    .or_erased()?
+                    .unwrap_or(default.limit),
+                ..default
+            }
+            .into(),
+            true,
+        ))
+    }
+
+    /// Return a low-level utility to efficiently prepare a blob-level diff operation between two resources,
+    /// and cache these diffable versions so that matrix-like MxN diffs are efficient.
+    ///
+    /// `repo` is used to obtain the needed configuration values.
+    /// `mode` determines how the diffable files will look like, and also how fast, in average, these conversions are.
+    /// `attr_stack` is for accessing `.gitattributes` for knowing how to apply filters. Know that it's typically adjusted based on the
+    /// `roots` - if there are no worktree roots, `.gitattributes` are also not usually read from worktrees.
+    /// `roots` provide information about where to get diffable data from, so source and destination can either be sourced from
+    /// a worktree, or from the object database, or both.
+    pub fn resource_cache(
+        repo: &Repository,
+        mode: legix_diff::blob::pipeline::Mode,
+        attr_stack: legix_worktree::Stack,
+        roots: legix_diff::blob::pipeline::WorktreeRoots,
+    ) -> Result<legix_diff::blob::Platform> {
+        let diff_algo = repo.config.diff_algorithm().or_erased()?;
+        let diff_cache = legix_diff::blob::Platform::new(
+            legix_diff::blob::platform::Options {
+                algorithm: Some(diff_algo),
+                skip_internal_diff_if_external_is_configured: false,
+            },
+            legix_diff::blob::Pipeline::new(
+                roots,
+                legix_filter::Pipeline::new(repo.command_context()?, crate::filter::Pipeline::options(repo)?),
+                repo.config.diff_drivers()?,
+                repo.config.diff_pipeline_options()?,
+            ),
+            mode,
+            attr_stack,
+        );
+        Ok(diff_cache)
+    }
+}

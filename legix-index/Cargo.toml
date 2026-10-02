@@ -1,0 +1,82 @@
+lints.workspace = true
+
+[package]
+name = "legix-index"
+version = "0.56.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A work-in-progress crate of the gitoxide project dedicated implementing the git index file"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
+rust-version = "1.88"
+
+
+[lib]
+doctest = false
+test = true
+
+[[bench]]
+name = "from-tree"
+harness = false
+path = "./benches/from_tree.rs"
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "smallvec/serde", "legix-hash/serde"]
+## Enable parallel implementations of common algorithms.
+## If not set, there can be no parallelism.
+parallel = ["legix-features/parallel"]
+
+[dependencies]
+legix-features = { version = "^0.50.0", path = "../legix-features", features = [
+    "progress",
+] }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-bitmap = { version = "^0.5.0", path = "../legix-bitmap" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-validate = { version = "^0.12.0", path = "../legix-validate" }
+legix-traverse = { version = "^0.62.0", path = "../legix-traverse" }
+legix-lock = { version = "^25.0.0", path = "../legix-lock" }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-utils = { version = "^0.4.0", path = "../legix-utils" }
+
+hashbrown = "0.17.1"
+fnv = "1.0.7"
+memmap2 = "0.9.11"
+filetime = "0.2.29"
+bstr = { version = "1.12.0", default-features = false }
+
+serde = { version = "1.0.114", optional = true, default-features = false, features = [
+    "derive",
+] }
+smallvec = "1.15.1"
+itoa = "1.0.17"
+bitflags = "2"
+
+document-features = { version = "0.2.0", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.2", default-features = false, features = [
+    "std",
+    "fs",
+] }
+libc = { version = "0.2.186" }
+
+[dev-dependencies]
+criterion = "0.8.2"
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-hashtable = { path = "../legix-hashtable" }
+legix-odb = { path = "../legix-odb" }
+legix-object = { path = "../legix-object" }
+filetime = "0.2.29"
+insta = { version = "1.46.3", features = ["filters"] }
+
+[package.metadata.docs.rs]
+features = ["sha1", "document-features", "serde"]

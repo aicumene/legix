@@ -1,0 +1,350 @@
+use std::collections::BTreeMap;
+
+use legix_error::{ErrorExt, ExnResult, Message, ResourceExhaustionKind, ResultExt};
+
+use super::Tree;
+
+/// Maps each referenced base object ID to indices in `Tree::child_items` of ref-deltas waiting for it.
+pub(super) type RefDeltaChildren = BTreeMap<legix_hash::ObjectId, Vec<u32>>;
+
+/// An item stored within the [`Tree`] whose data is stored in a pack file, identified by
+/// the offset of its first (`offset`) and last (`next_offset`) bytes.
+///
+/// It represents either a root entry, or one that relies on a base to be resolvable,
+/// alongside associated `data` `T`.
+pub struct Item<T> {
+    /// The offset into the pack file at which the pack entry's data is located.
+    pub offset: crate::data::Offset,
+    /// The offset of the next item in the pack file.
+    pub next_offset: crate::data::Offset,
+    /// Data to store with each Item, effectively data associated with each entry in a pack.
+    pub data: T,
+    /// Indices into our Tree's `items`, one for each pack entry that depends on us.
+    ///
+    /// Limited to u32 as that's the maximum amount of objects in a pack.
+    // SAFETY INVARIANT:
+    //    - only one Item in a tree may have any given child index. `future_child_offsets`
+    //      and `ref_child_indices` should also not contain any indices found in `children`.
+    //    - These indices should be in bounds for tree.child_items
+    children: Vec<u32>,
+}
+
+impl<T> Item<T> {
+    /// Get the children
+    // (we don't want to expose mutable access)
+    pub(super) fn children(&self) -> &[u32] {
+        &self.children
+    }
+
+    pub(super) fn extend_children(&mut self, children: impl IntoIterator<Item = u32>) {
+        self.children.extend(children);
+    }
+}
+
+/// Identify what kind of node we have last seen
+pub(super) enum NodeKind {
+    Root,
+    Child,
+}
+
+fn allocation_error(kind: ResourceExhaustionKind) -> Message {
+    legix_error::resource_exhaustion(kind, "The pack delta tree is too large to fit in memory")
+}
+
+impl<T> Tree<T> {
+    /// Instantiate a empty tree capable of storing `num_objects` amounts of items.
+    pub(crate) fn with_capacity(num_objects: usize, alloc_limit_bytes: Option<usize>) -> ExnResult<Self> {
+        let capacity = num_objects / 2;
+        let allocation_bytes = capacity
+            .checked_mul(std::mem::size_of::<Item<T>>())
+            .ok_or_else(|| allocation_error(ResourceExhaustionKind::AllocationFailure).raise_erased())?;
+        if alloc_limit_bytes.is_some_and(|limit| allocation_bytes > limit) {
+            return Err(allocation_error(ResourceExhaustionKind::AllocationLimit).raise_erased());
+        }
+
+        let mut root_items = Vec::new();
+        root_items
+            .try_reserve_exact(capacity)
+            .or_raise_erased(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+        let mut child_items = Vec::new();
+        child_items
+            .try_reserve_exact(capacity)
+            .or_raise_erased(|| allocation_error(ResourceExhaustionKind::AllocationFailure))?;
+        Ok(Tree {
+            root_items,
+            child_items,
+            last_seen: None,
+            future_child_offsets: Vec::new(),
+            ref_child_indices: BTreeMap::new(),
+        })
+    }
+
+    pub(super) fn num_items(&self) -> usize {
+        self.root_items.len() + self.child_items.len()
+    }
+
+    /// Returns self's root and child items.
+    ///
+    /// You can rely on them following the same `children` invariants as they did in the tree
+    pub(super) fn take_root_child_and_refs(self) -> (Vec<Item<T>>, Vec<Item<T>>, RefDeltaChildren) {
+        (self.root_items, self.child_items, self.ref_child_indices)
+    }
+
+    pub(super) fn assert_is_incrementing_and_update_next_offset(&mut self, offset: crate::data::Offset) -> ExnResult {
+        let items = match &self.last_seen {
+            Some(NodeKind::Root) => &mut self.root_items,
+            Some(NodeKind::Child) => &mut self.child_items,
+            None => return Ok(()),
+        };
+        let item = &mut items.last_mut().expect("last seen won't lie");
+        if offset <= item.offset {
+            return Err(legix_error::corruption(format!(
+                "Pack offsets must only increment. The previous pack offset was {}, the current one is {offset}",
+                item.offset
+            ))
+            .raise_erased());
+        }
+        item.next_offset = offset;
+        Ok(())
+    }
+
+    pub(super) fn set_pack_entries_end_and_resolve_ref_offsets(
+        &mut self,
+        pack_entries_end: crate::data::Offset,
+    ) -> ExnResult {
+        if !self.future_child_offsets.is_empty() {
+            for (parent_offset, child_index) in self.future_child_offsets.drain(..) {
+                // SAFETY invariants upheld:
+                //  - We are draining from future_child_offsets and adding to children, keeping things the same.
+                //  - We can rely on the `future_child_offsets` invariant to be sure that `children` is
+                //    not getting any indices that are already in use in `children` elsewhere
+                //  - The indices are in bounds for child_items since they were in bounds for future_child_offsets,
+                //    we can carry over the invariant.
+                if let Ok(i) = self.child_items.binary_search_by_key(&parent_offset, |i| i.offset) {
+                    self.child_items[i].children.push(child_index as u32);
+                } else if let Ok(i) = self.root_items.binary_search_by_key(&parent_offset, |i| i.offset) {
+                    self.root_items[i].children.push(child_index as u32);
+                } else {
+                    return Err(legix_error::message!(
+                        "The base at {parent_offset} was referred to by a ref-delta, but it was never added to the tree as if the pack was still thin."
+                    )
+                    .raise_erased());
+                }
+            }
+        }
+
+        self.assert_is_incrementing_and_update_next_offset(pack_entries_end)
+            .expect("BUG: pack now is smaller than all previously seen entries");
+        Ok(())
+    }
+
+    /// Add a new root node, one that only has children but is not a child itself, at the given pack `offset` and associate
+    /// custom `data` with it.
+    pub(crate) fn add_root(&mut self, offset: crate::data::Offset, data: T) -> ExnResult {
+        self.assert_is_incrementing_and_update_next_offset(offset)?;
+        self.last_seen = NodeKind::Root.into();
+        self.root_items.push(Item {
+            offset,
+            next_offset: 0,
+            data,
+            // SAFETY INVARIANT upheld: there are no children
+            children: Default::default(),
+        });
+        Ok(())
+    }
+
+    /// Add a child of the item at `base_offset` which itself resides at pack `offset` and associate custom `data` with it.
+    pub(crate) fn add_child(
+        &mut self,
+        base_offset: crate::data::Offset,
+        offset: crate::data::Offset,
+        data: T,
+    ) -> ExnResult {
+        self.assert_is_incrementing_and_update_next_offset(offset)?;
+
+        let next_child_index = self.child_items.len();
+        // SAFETY INVARIANT upheld:
+        // - This is one of two methods that modifies `children` and future_child_offsets. Out
+        //   of the two, it is the only one that produces new indices in the system.
+        // - This always pushes next_child_index to *either* `children` or `future_child_offsets`,
+        //   maintaining the cross-field invariant there.
+        // - This method will always push to child_items (at the end), incrementing
+        //   future values of next_child_index. This means next_child_index is always
+        //   unique for this method call.
+        // - As the only method producing new indices, this is the only time
+        //   next_child_index will be added to children/future_child_offsets, upholding the invariant.
+        // - Since next_child_index will always be a valid index by the end of this method,
+        //   this always produces valid in-bounds indices, upholding the bounds invariant.
+
+        if let Ok(i) = self.child_items.binary_search_by_key(&base_offset, |i| i.offset) {
+            self.child_items[i].children.push(next_child_index as u32);
+        } else if let Ok(i) = self.root_items.binary_search_by_key(&base_offset, |i| i.offset) {
+            self.root_items[i].children.push(next_child_index as u32);
+        } else {
+            self.future_child_offsets.push((base_offset, next_child_index));
+        }
+
+        self.last_seen = NodeKind::Child.into();
+        self.child_items.push(Item {
+            offset,
+            next_offset: 0,
+            data,
+            // SAFETY INVARIANT upheld: there are no children
+            children: Default::default(),
+        });
+        Ok(())
+    }
+
+    /// Add a child whose base is identified by object id and may occur anywhere in the pack.
+    #[cfg(feature = "streaming-input")]
+    pub(crate) fn add_child_by_id(
+        &mut self,
+        base_id: legix_hash::ObjectId,
+        offset: crate::data::Offset,
+        data: T,
+    ) -> ExnResult {
+        self.assert_is_incrementing_and_update_next_offset(offset)?;
+
+        let child_index = self.child_items.len() as u32;
+        self.ref_child_indices.entry(base_id).or_default().push(child_index);
+        self.last_seen = NodeKind::Child.into();
+        self.child_items.push(Item {
+            offset,
+            next_offset: 0,
+            data,
+            children: Default::default(),
+        });
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn allocation_failure_is_reported() {
+        let err = super::Tree::<()>::with_capacity(usize::MAX, None)
+            .err()
+            .expect("an impossible attacker-controlled capacity must return an allocation error");
+        insta::assert_debug_snapshot!(err, "allocation failure is reported", @"The pack delta tree is too large to fit in memory");
+        assert_eq!(
+            err.classify().find_map(|classification| match classification.class() {
+                legix_error::Class::ResourceExhaustion(kind) => Some(kind),
+                _ => None,
+            }),
+            Some(legix_error::ResourceExhaustionKind::AllocationFailure)
+        );
+
+        let err = super::Tree::<()>::with_capacity(2, Some(0))
+            .err()
+            .expect("the configured allocation limit must apply to delta-tree storage");
+        insta::assert_debug_snapshot!(err, "allocation failure is reported", @"The pack delta tree is too large to fit in memory");
+        assert_eq!(
+            err.classify().find_map(|classification| match classification.class() {
+                legix_error::Class::ResourceExhaustion(kind) => Some(kind),
+                _ => None,
+            }),
+            Some(legix_error::ResourceExhaustionKind::AllocationLimit)
+        );
+    }
+
+    mod from_offsets_in_pack {
+        use std::sync::atomic::AtomicBool;
+
+        use crate as pack;
+
+        const SMALL_PACK_INDEX: &str = "objects/pack/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.idx";
+        const SMALL_PACK: &str = "objects/pack/pack-a2bf8e71d8c18879e499335762dd95119d93d9f1.pack";
+
+        const INDEX_V1: &str = "objects/pack/pack-c0438c19fb16422b6bbcce24387b3264416d485b.idx";
+        const PACK_FOR_INDEX_V1: &str = "objects/pack/pack-c0438c19fb16422b6bbcce24387b3264416d485b.pack";
+
+        use legix_testtools::fixture_path;
+
+        #[test]
+        fn v1() -> legix_testtools::Result {
+            tree(INDEX_V1, PACK_FOR_INDEX_V1)
+        }
+
+        #[test]
+        fn v2() -> legix_testtools::Result {
+            tree(SMALL_PACK_INDEX, SMALL_PACK)
+        }
+
+        #[test]
+        fn invalid_ofs_delta_base_distance_is_reported() -> legix_testtools::Result {
+            let first_entry_offset = pack::data::header::SIZE as pack::data::Offset;
+            let pack_file = legix_testtools::tempfile::NamedTempFile::new()?;
+            let mut pack_data = pack::data::header::encode(pack::data::Version::V2, 1).to_vec();
+            pack::data::entry::Header::OfsDelta {
+                base_distance: first_entry_offset + 1,
+            }
+            .write_to(0, &mut pack_data)?;
+            std::fs::write(pack_file.path(), pack_data)?;
+
+            let result = crate::cache::delta::Tree::from_offsets_in_pack(
+                pack_file.path(),
+                std::iter::once(()),
+                &|_| first_entry_offset,
+                &|_| None,
+                &mut legix_features::progress::Discard,
+                &AtomicBool::new(false),
+                legix_hash::Kind::Sha1,
+            );
+
+            assert!(result.is_err(), "an out-of-bounds delta base is corrupt pack data");
+            Ok(())
+        }
+
+        fn tree(index_path: &str, pack_path: &str) -> legix_testtools::Result {
+            let idx = pack::index::File::at(fixture_path(index_path), legix_hash::Kind::Sha1)?;
+            crate::cache::delta::Tree::from_offsets_in_pack(
+                &fixture_path(pack_path),
+                idx.sorted_offsets().into_iter(),
+                &|ofs| *ofs,
+                &|id| idx.lookup(id).map(|index| idx.pack_offset_at_index(index)),
+                &mut legix_features::progress::Discard,
+                &AtomicBool::new(false),
+                legix_hash::Kind::Sha1,
+            )?;
+            Ok(())
+        }
+    }
+
+    mod size {
+        use legix_testtools::size_ok;
+
+        use super::super::Item;
+
+        #[test]
+        fn size_of_pack_tree_item() {
+            let actual = std::mem::size_of::<[Item<()>; 7_500_000]>();
+            let expected = 300_000_000;
+            assert!(
+                size_ok(actual, expected),
+                "we don't want these to grow unnoticed: {actual} <~ {expected}"
+            );
+        }
+
+        #[test]
+        fn size_of_pack_verify_data_structure() {
+            pub struct EntryWithDefault {
+                _index_entry: crate::index::Entry,
+                _kind: legix_object::Kind,
+                _object_size: u64,
+                _decompressed_size: u64,
+                _compressed_size: u64,
+                _header_size: u16,
+                _level: u16,
+            }
+
+            let actual = std::mem::size_of::<[Item<EntryWithDefault>; 7_500_000]>();
+            let sha1 = 840_000_000;
+            let sha256_extra = 120_000_000;
+            let expected = sha1 + sha256_extra;
+            assert!(
+                size_ok(actual, expected),
+                "we don't want these to grow unnoticed: {actual} <~ {expected}"
+            );
+        }
+    }
+}

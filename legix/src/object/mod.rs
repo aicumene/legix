@@ -1,0 +1,261 @@
+//!
+#![allow(clippy::empty_docs)]
+use legix_error::ExnMessageResult;
+use legix_error::{ErrorExt, ResultExt};
+
+use legix_hash::ObjectId;
+pub use legix_object::Kind;
+
+use crate::{Blob, Commit, Error, Id, Object, ObjectDetached, Result, Tag, Tree};
+
+mod errors;
+pub(crate) mod cache {
+    pub use legix_pack::cache::object::MemoryCappedHashmap;
+}
+pub(crate) use errors::existing_error;
+
+///
+pub mod blob;
+///
+pub mod commit;
+mod impls;
+pub mod peel;
+mod tag;
+///
+pub mod tree;
+
+impl ObjectDetached {
+    /// Infuse this owned object with `repo` access.
+    pub fn attach(self, repo: &crate::Repository) -> Object<'_> {
+        Object {
+            id: self.id,
+            kind: self.kind,
+            data: self.data,
+            repo,
+        }
+    }
+}
+
+impl std::fmt::Debug for ObjectDetached {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use legix_object::Kind::*;
+        let type_name = match self.kind {
+            Blob => "Blob",
+            Commit => "Commit",
+            Tree => "Tree",
+            Tag => "Tag",
+        };
+        write!(f, "{}({})", type_name, self.id)
+    }
+}
+
+/// Consuming conversions to attached object kinds.
+impl<'repo> Object<'repo> {
+    pub(crate) fn from_data(
+        id: impl Into<ObjectId>,
+        kind: Kind,
+        data: Vec<u8>,
+        repo: &'repo crate::Repository,
+    ) -> Self {
+        Object {
+            id: id.into(),
+            kind,
+            data,
+            repo,
+        }
+    }
+
+    /// Transform this object into a blob, or panic if it is none.
+    pub fn into_blob(self) -> Blob<'repo> {
+        match self.try_into() {
+            Ok(blob) => blob,
+            Err(this) => panic!("Tried to use {} as blob, but was {}", this.id, this.kind),
+        }
+    }
+
+    /// Transform this object into a tree, or panic if it is none.
+    pub fn into_tree(self) -> Tree<'repo> {
+        match self.try_into() {
+            Ok(tree) => tree,
+            Err(this) => panic!("Tried to use {} as tree, but was {}", this.id, this.kind),
+        }
+    }
+
+    /// Transform this object into a commit, or panic if it is none.
+    pub fn into_commit(self) -> Commit<'repo> {
+        match self.try_into() {
+            Ok(commit) => commit,
+            Err(this) => panic!("Tried to use {} as commit, but was {}", this.id, this.kind),
+        }
+    }
+
+    /// Transform this object into a tag, or panic if it is none.
+    pub fn into_tag(self) -> Tag<'repo> {
+        match self.try_into() {
+            Ok(tag) => tag,
+            Err(this) => panic!("Tried to use {} as tag, but was {}", this.id, this.kind),
+        }
+    }
+
+    /// Transform this object into a commit, or return it as part of the `Err` if it is no commit.
+    pub fn try_into_commit(self) -> ExnMessageResult<Commit<'repo>> {
+        self.try_into().map_err(|this: Self| {
+            legix_error::validation(format!(
+                "Object named {} was supposed to be of kind {}, but was kind {}.",
+                this.id,
+                legix_object::Kind::Commit,
+                this.kind
+            ))
+            .raise()
+        })
+    }
+
+    /// Transform this object into a tag, or return it as part of the `Err` if it is no commit.
+    pub fn try_into_tag(self) -> ExnMessageResult<Tag<'repo>> {
+        self.try_into().map_err(|this: Self| {
+            legix_error::validation(format!(
+                "Object named {} was supposed to be of kind {}, but was kind {}.",
+                this.id,
+                legix_object::Kind::Tag,
+                this.kind
+            ))
+            .raise()
+        })
+    }
+
+    /// Transform this object into a tree, or return it as part of the `Err` if it is no tree.
+    pub fn try_into_tree(self) -> ExnMessageResult<Tree<'repo>> {
+        self.try_into().map_err(|this: Self| {
+            legix_error::validation(format!(
+                "Object named {} was supposed to be of kind {}, but was kind {}.",
+                this.id,
+                legix_object::Kind::Tree,
+                this.kind
+            ))
+            .raise()
+        })
+    }
+
+    /// Transform this object into a blob, or return it as part of the `Err` if it is no blob.
+    pub fn try_into_blob(self) -> ExnMessageResult<Blob<'repo>> {
+        self.try_into().map_err(|this: Self| {
+            legix_error::validation(format!(
+                "Object named {} was supposed to be of kind {}, but was kind {}.",
+                this.id,
+                legix_object::Kind::Blob,
+                this.kind
+            ))
+            .raise()
+        })
+    }
+}
+
+impl Object<'_> {
+    /// Create an owned instance of this object, copying our data in the process.
+    pub fn detached(&self) -> ObjectDetached {
+        ObjectDetached {
+            id: self.id,
+            kind: self.kind,
+            data: self.data.clone(),
+        }
+    }
+
+    /// Sever the connection to the `Repository` and turn this instance into a standalone object.
+    pub fn detach(self) -> ObjectDetached {
+        self.into()
+    }
+}
+
+/// Conversions to detached, lower-level object types.
+impl<'repo> Object<'repo> {
+    /// Obtain a fully parsed commit whose fields reference our data buffer,
+    ///
+    /// # Panic
+    ///
+    /// - this object is not a commit
+    /// - the commit could not be decoded
+    pub fn to_commit_ref(&self) -> legix_object::CommitRef<'_> {
+        self.try_to_commit_ref().expect("BUG: need a commit")
+    }
+
+    /// Obtain a fully parsed commit whose fields reference our data buffer.
+    pub fn try_to_commit_ref(&self) -> Result<legix_object::CommitRef<'_>> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind())
+            .decode()
+            .or_erased()?
+            .into_commit()
+            .ok_or_else(|| {
+                Error::from_error(legix_error::validation(format!(
+                    "Expected object type {}, but got {}",
+                    legix_object::Kind::Commit,
+                    self.kind
+                )))
+            })
+    }
+
+    /// Obtain an iterator over commit tokens like in [`to_commit_iter()`][Object::try_to_commit_ref_iter()].
+    ///
+    /// # Panic
+    ///
+    /// - this object is not a commit
+    pub fn to_commit_ref_iter(&self) -> legix_object::CommitRefIter<'_> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind())
+            .try_into_commit_iter()
+            .expect("BUG: This object must be a commit")
+    }
+
+    /// Obtain a commit token iterator from the data in this instance, if it is a commit.
+    pub fn try_to_commit_ref_iter(&self) -> Option<legix_object::CommitRefIter<'_>> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind()).try_into_commit_iter()
+    }
+
+    /// Obtain a tag token iterator from the data in this instance.
+    ///
+    /// # Panic
+    ///
+    /// - this object is not a tag
+    pub fn to_tag_ref_iter(&self) -> legix_object::TagRefIter<'_> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind())
+            .try_into_tag_iter()
+            .expect("BUG: this object must be a tag")
+    }
+
+    /// Obtain a tag token iterator from the data in this instance.
+    ///
+    /// # Panic
+    ///
+    /// - this object is not a tag
+    pub fn try_to_tag_ref_iter(&self) -> Option<legix_object::TagRefIter<'_>> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind()).try_into_tag_iter()
+    }
+
+    /// Obtain a tag object from the data in this instance.
+    ///
+    /// # Panic
+    ///
+    /// - this object is not a tag
+    /// - the tag could not be decoded
+    pub fn to_tag_ref(&self) -> legix_object::TagRef<'_> {
+        self.try_to_tag_ref().expect("BUG: need tag")
+    }
+
+    /// Obtain a fully parsed tag object whose fields reference our data buffer.
+    pub fn try_to_tag_ref(&self) -> Result<legix_object::TagRef<'_>> {
+        legix_object::Data::new(&self.data, self.kind, self.id.kind())
+            .decode()
+            .or_erased()?
+            .into_tag()
+            .ok_or_else(|| {
+                Error::from_error(legix_error::validation(format!(
+                    "Expected object type {}, but got {}",
+                    legix_object::Kind::Tag,
+                    self.kind
+                )))
+            })
+    }
+
+    /// Return the attached id of this object.
+    pub fn id(&self) -> Id<'repo> {
+        Id::from_id(self.id, self.repo)
+    }
+}

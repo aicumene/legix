@@ -1,0 +1,52 @@
+[package]
+name = "gix-pack-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+anyhow = "1.0.100"
+libfuzzer-sys = "0.4"
+
+[dependencies.legix-features]
+path = "../../legix-features"
+features = ["progress"]
+
+[dependencies.legix-zlib]
+path = "../../legix-zlib"
+
+[dependencies.legix-hash]
+path = "../../legix-hash"
+features = ["sha1"]
+
+[dependencies.legix-pack]
+path = ".."
+features = ["sha1"]
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "data_file"
+path = "fuzz_targets/data_file.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "index_file"
+path = "fuzz_targets/index_file.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "multi_index_file"
+path = "fuzz_targets/multi_index_file.rs"
+test = false
+doc = false

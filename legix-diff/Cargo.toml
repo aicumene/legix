@@ -1,0 +1,103 @@
+lints.workspace = true
+
+[package]
+name = "legix-diff"
+version = "0.68.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "Calculate differences between various git objects"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[features]
+default = ["blob", "index"]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Enable diffing of blobs using imara-diff.
+blob = [
+    "dep:imara-diff",
+    "dep:legix-filter",
+    "dep:legix-worktree",
+    "dep:legix-path",
+    "dep:legix-fs",
+    "dep:legix-command",
+    "dep:legix-tempfile",
+    "dep:legix-trace",
+    "dep:legix-traverse"
+]
+## Enable diffing of two indices, which also allows for a generic rewrite tracking implementation.
+index = ["dep:legix-index", "dep:legix-pathspec", "dep:legix-attributes"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "legix-hash/serde", "legix-object/serde", "legix-index?/serde"]
+## Make it possible to compile to the `wasm32-unknown-unknown` target.
+wasm = ["dep:getrandom"]
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "line-count"
+harness = false
+required-features = ["blob"]
+path = "./benches/line_count.rs"
+
+[[bench]]
+name = "rewrite-tracker"
+harness = false
+required-features = ["blob"]
+path = "./benches/rewrite_tracker.rs"
+
+[dependencies]
+legix-index = { version = "^0.56.0", path = "../legix-index", optional = true }
+legix-pathspec = { version = "^0.21.0", path = "../legix-pathspec", optional = true }
+legix-attributes = { version = "^0.36.0", path = "../legix-attributes", optional = true }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-filter = { version = "^0.35.0", path = "../legix-filter", optional = true }
+legix-worktree = { version = "^0.57.0", path = "../legix-worktree", default-features = false, features = ["attributes"], optional = true }
+legix-command = { version = "^0.11.0", path = "../legix-command", optional = true }
+legix-path = { version = "^0.13.0", path = "../legix-path", optional = true }
+legix-fs = { version = "^0.23.0", path = "../legix-fs", optional = true }
+legix-tempfile = { version = "^25.0.0", path = "../legix-tempfile", optional = true }
+legix-trace = { version = "^0.2.0", path = "../legix-trace", optional = true }
+legix-traverse = { version = "^0.62.0", path = "../legix-traverse", optional = true }
+imara-diff = { package = "legix-imara-diff", version = "^0.3.0", optional = true, path = "../legix-imara-diff" }
+
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+getrandom = { version = "0.4", optional = true, default-features = false, features = ["wasm_js"] }
+bstr = { version = "1.12.0", default-features = false }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+criterion = "0.8.2"
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-index = { path = "../legix-index" }
+legix-pathspec = { path = "../legix-pathspec" }
+legix-fs = { path = "../legix-fs" }
+legix-worktree = { path = "../legix-worktree" }
+legix-object = { path = "../legix-object" }
+legix-odb = { path = "../legix-odb" }
+legix-filter = { path = "../legix-filter" }
+legix-traverse = { path = "../legix-traverse" }
+
+insta = "1.46.3"
+pretty_assertions = "1.4.0"
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "document-features"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    # WASM support dependency activated through the `wasm = ["dep:getrandom"]` feature.
+    "getrandom",
+    # Optional API feature wiring (`dep:serde`) referenced only from feature definitions.
+    "serde",
+]

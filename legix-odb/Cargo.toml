@@ -1,0 +1,66 @@
+lints.workspace = true
+
+[package]
+name = "legix-odb"
+version = "0.85.0"
+repository = "https://github.com/aicumene/legix"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+license = "MIT OR Apache-2.0"
+description = "Implements various git object databases"
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+autotests = false
+
+[lib]
+doctest = true
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1", "legix-pack/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256", "legix-pack/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "legix-hash/serde", "legix-object/serde", "legix-pack/serde"]
+## Enable support for multi-threaded usage of the object database.
+parallel = ["legix-features/parallel"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-features = { version = "^0.50.0", path = "../legix-features", features = ["walkdir", "crc32"] }
+legix-zlib = { version = "^0.2.0", path = "../legix-zlib" }
+legix-hashtable = { version = "^0.17.0", path = "../legix-hashtable" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-quote = { version = "^0.9.0", path = "../legix-quote" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-pack = { version = "^0.75.0", path = "../legix-pack", default-features = false }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+
+tempfile = "3.26.0"
+parking_lot = { version = "0.12.4" }
+arc-swap = "1.9.0"
+memmap2 = "0.9.11"
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-odb = { path = ".", features = ["sha1", "sha256"] }
+legix-hash = { path = "../legix-hash" }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-date = { path = "../legix-date" }
+legix-pack = { path = "../legix-pack", features = ["sha1"] }
+legix-actor = { path = "../legix-actor" }
+pretty_assertions = "1.0.0"
+filetime = "0.2.29"
+maplit = "1.0.2"
+crossbeam-channel = "0.5.15"
+
+[[test]]
+name = "odb"
+path = "tests/odb/main.rs"
+
+[package.metadata.docs.rs]
+features = ["sha1", "document-features", "serde"]

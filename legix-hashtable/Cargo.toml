@@ -1,0 +1,32 @@
+lints.workspace = true
+
+[package]
+name = "legix-hashtable"
+version = "0.17.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate that provides hashtable based data structures optimized to utilize ObjectId keys"
+authors = ["Pascal Kuthe <pascal.kuthe@semimod.de>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = true
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+
+[dependencies]
+parking_lot = "0.12.4"
+hashbrown = { version = "0.17.1", default-features = false, features = ["inline-more"] }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+
+[dev-dependencies]
+legix-hash = { path = "../legix-hash", features = ["sha1"] }
+
+[package.metadata.docs.rs]
+features = ["sha1"]

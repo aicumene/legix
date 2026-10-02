@@ -8,7 +8,7 @@ use std::{
 };
 
 use bstr::{BString, ByteSlice};
-use gix_hash::{Kind, ObjectId};
+use legix_hash::{Kind, ObjectId};
 
 use super::{Commit, Head, IndexEntry, Reference, ReferenceTarget, State};
 use crate::Result;

@@ -1,5 +1,5 @@
 pub struct Options {
-    pub patterns: Vec<gix::pathspec::Pattern>,
+    pub patterns: Vec<legix::pathspec::Pattern>,
     pub verbatim: bool,
     pub max_count: usize,
 }
@@ -8,7 +8,7 @@ pub(super) mod function {
     use std::{borrow::Cow, path::Path};
 
     use anyhow::{Context, bail};
-    use gix::{object::tree::EntryKind, objs::FindExt};
+    use legix::{object::tree::EntryKind, objs::FindExt};
 
     use super::Options;
 
@@ -24,7 +24,7 @@ pub(super) mod function {
             max_count,
         }: Options,
     ) -> anyhow::Result<()> {
-        let repo = gix::open(repo_dir)?;
+        let repo = legix::open(repo_dir)?;
         let commit = repo.rev_parse_single(committish)?.object()?.try_into_commit()?;
 
         let assets = output_dir.join(name);
@@ -74,12 +74,12 @@ pub(super) mod function {
     }
 
     fn write_tree_as_update_index_format(
-        repo: &gix::Repository,
-        index: &gix::index::State,
+        repo: &legix::Repository,
+        index: &legix::index::State,
         out: &mut dyn std::io::Write,
         output_dir: &Path,
         verbatim: bool,
-        patterns: Vec<gix::pathspec::Pattern>,
+        patterns: Vec<legix::pathspec::Pattern>,
     ) -> anyhow::Result<()> {
         let mut blob_buf = Vec::new();
         let mut specs = repo.pathspec(
@@ -88,7 +88,7 @@ pub(super) mod function {
             patterns.clone().into_iter().map(|p| p.to_bstring()),
             true,
             index,
-            gix::worktree::stack::state::attributes::Source::IdMapping,
+            legix::worktree::stack::state::attributes::Source::IdMapping,
         )?;
 
         for (rela_path, entry) in specs.index_entries_with_paths(index).into_iter().flatten() {
@@ -110,7 +110,7 @@ pub(super) mod function {
                         let obj = repo
                             .objects
                             .find(&entry.id, &mut blob_buf)
-                            .map_err(gix::Exn::into_error)?;
+                            .map_err(legix::Exn::into_error)?;
                         if verbatim {
                             (entry.id, Cow::Borrowed(&blob_buf))
                         } else {
@@ -119,9 +119,9 @@ pub(super) mod function {
                             })?;
                             let mapped = crate::commands::copy_royal::remapped(data);
                             (
-                                gix::objs::compute_hash(
+                                legix::objs::compute_hash(
                                     repo.object_hash(),
-                                    gix::object::Kind::Blob,
+                                    legix::object::Kind::Blob,
                                     mapped.as_bytes(),
                                 )?,
                                 Cow::Owned(mapped.into()),
@@ -131,7 +131,7 @@ pub(super) mod function {
                     EntryKind::Link => {
                         repo.objects
                             .find(&entry.id, &mut blob_buf)
-                            .map_err(gix::Exn::into_error)?;
+                            .map_err(legix::Exn::into_error)?;
                         (entry.id, Cow::Borrowed(&blob_buf))
                     }
                     EntryKind::Commit => continue,

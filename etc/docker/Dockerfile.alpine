@@ -52,7 +52,7 @@ FROM alpine:3.13.3 AS pipeline
 
   WORKDIR /root
 
-  HEALTHCHECK --retries=1 --timeout=15s CMD gix help
+  HEALTHCHECK --retries=1 --timeout=15s CMD legix help
 
   ENTRYPOINT [ "/init" ]
 

@@ -1,0 +1,32 @@
+lints.workspace = true
+
+[package]
+name = "legix-prompt"
+version = "0.18.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project for handling prompts in the terminal"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[dependencies]
+legix-command = { version = "^0.11.0", path = "../legix-command" }
+legix-config-value = { version = "^0.20.0", path = "../legix-config-value" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.2", features = ["termios"] }
+parking_lot = "0.12.4"
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-testtools = { path = "../tests/tools", features = ["sha1"] }
+serial_test = { version = "3.4.0", default-features = false }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))'.dev-dependencies]
+expectrl = "0.7.0"

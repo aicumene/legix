@@ -8,7 +8,7 @@ use std::{
     process::Command,
 };
 
-use gix_testtools::Result;
+use legix_testtools::Result;
 use serde_json::{Value, json};
 
 #[derive(Default)]
@@ -108,7 +108,7 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result {
         .clone()
         .unwrap_or_else(|| PathBuf::from(metadata["target_directory"].as_str().unwrap_or("target")).join("sbom"));
     fs::create_dir_all(&output_dir)?;
-    let temporary = gix_testtools::tempfile::Builder::new()
+    let temporary = legix_testtools::tempfile::Builder::new()
         .prefix(".sbom-")
         .tempdir_in(&output_dir)?;
     let mut binary_manifests = BTreeMap::new();

@@ -45,7 +45,7 @@ pub mod pretty {
     use std::io::{stderr, stdout};
 
     use anyhow::Result;
-    use gix_features::progress;
+    use legix_features::progress;
 
     use crate::shared::ProgressRange;
 
@@ -97,13 +97,13 @@ pub mod pretty {
     fn init_tracing(
         enable: bool,
         reverse_lines: bool,
-        progress: &gix::progress::prodash::tree::Root,
+        progress: &legix::progress::prodash::tree::Root,
     ) -> anyhow::Result<()> {
         if enable {
             let processor = tracing_forest::Printer::new().formatter({
                 let progress = std::sync::Mutex::new(progress.add_child("tracing"));
                 move |tree: &tracing_forest::tree::Tree| -> Result<String, std::fmt::Error> {
-                    use gix::Progress;
+                    use legix::Progress;
                     use tracing_forest::Formatter;
                     let progress = &mut progress.lock().unwrap();
                     let tree = tracing_forest::printer::Pretty.fmt(tree)?;
@@ -163,7 +163,7 @@ pub mod pretty {
                 let mut out = Vec::<u8>::new();
                 let mut err = Vec::<u8>::new();
 
-                let res = gix::trace::coarse!("run")
+                let res = legix::trace::coarse!("run")
                     .into_scope(|| run(progress::DoOrDiscard::from(Some(sub_progress)), &mut out, &mut err));
 
                 handle.shutdown_and_wait();
@@ -215,7 +215,7 @@ pub mod pretty {
                         // We might have something interesting to show, which would be hidden by the alternate screen if there is a progress TUI
                         // We know that the printing happens at the end, so this is fine.
                         let mut out = Vec::new();
-                        let res = gix::trace::coarse!("run", name = name).into_scope(|| {
+                        let res = legix::trace::coarse!("run", name = name).into_scope(|| {
                             run(progress::DoOrDiscard::from(Some(sub_progress)), &mut out, &mut stderr())
                         });
                         tx.send(Event::ComputationDone(res, out)).ok();
@@ -226,7 +226,7 @@ pub mod pretty {
                         Ok(Event::UiDone) => {
                             // We don't know why the UI is done, usually it's the user aborting.
                             // We need the computation to stop as well so let's wait for that to happen
-                            gix::interrupt::trigger();
+                            legix::interrupt::trigger();
                             continue;
                         }
                         Ok(Event::ComputationDone(res, out)) => {
@@ -270,8 +270,8 @@ mod clap {
     use std::{ffi::OsStr, str::FromStr};
 
     use clap::{Arg, Command, Error, builder, builder::PossibleValue, error::ErrorKind};
-    use gitoxide_core as core;
-    use gix::bstr::BString;
+    use legix_core as core;
+    use legix::bstr::BString;
 
     #[derive(Clone)]
     pub struct AsBString;
@@ -280,7 +280,7 @@ mod clap {
         type Value = BString;
 
         fn parse_ref(&self, _cmd: &Command, _arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
-            gix::env::os_str_to_bstring(value).ok_or_else(|| Error::new(ErrorKind::InvalidUtf8))
+            legix::env::os_str_to_bstring(value).ok_or_else(|| Error::new(ErrorKind::InvalidUtf8))
         }
     }
 
@@ -305,11 +305,11 @@ mod clap {
     pub struct AsHashKind;
 
     impl builder::TypedValueParser for AsHashKind {
-        type Value = gix::hash::Kind;
+        type Value = legix::hash::Kind;
 
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             builder::StringValueParser::new()
-                .try_map(|arg| gix::hash::Kind::from_str(&arg))
+                .try_map(|arg| legix::hash::Kind::from_str(&arg))
                 .parse_ref(cmd, arg, value)
         }
 
@@ -319,13 +319,13 @@ mod clap {
     }
 
     use clap::builder::{OsStringValueParser, StringValueParser, TypedValueParser};
-    use gix::ExnMessageResult;
+    use legix::ExnMessageResult;
 
     #[derive(Clone)]
     pub struct AsPathSpec;
 
-    static PATHSPEC_DEFAULTS: std::sync::LazyLock<gix::pathspec::Defaults> = std::sync::LazyLock::new(|| {
-        gix::pathspec::Defaults::from_environment(&mut |n| std::env::var_os(n)).unwrap_or_default()
+    static PATHSPEC_DEFAULTS: std::sync::LazyLock<legix::pathspec::Defaults> = std::sync::LazyLock::new(|| {
+        legix::pathspec::Defaults::from_environment(&mut |n| std::env::var_os(n)).unwrap_or_default()
     });
 
     impl TypedValueParser for AsPathSpec {
@@ -334,16 +334,16 @@ mod clap {
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             OsStringValueParser::new()
                 .try_map(|arg| -> ExnMessageResult<_> {
-                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg));
-                    gix::pathspec::parse(arg.as_ref(), *PATHSPEC_DEFAULTS)?;
+                    let arg = legix::path::into_bstr(std::path::PathBuf::from(arg));
+                    legix::pathspec::parse(arg.as_ref(), *PATHSPEC_DEFAULTS)?;
                     Ok(arg.into_owned())
                 })
                 .parse_ref(cmd, arg, value)
         }
     }
 
-    pub fn parse_pathspec_argument(value: BString) -> gix::pathspec::Pattern {
-        gix::pathspec::parse(value.as_ref(), *PATHSPEC_DEFAULTS)
+    pub fn parse_pathspec_argument(value: BString) -> legix::pathspec::Pattern {
+        legix::pathspec::parse(value.as_ref(), *PATHSPEC_DEFAULTS)
             .expect("AsPathSpec validated the pathspec before storing its argument")
     }
 
@@ -356,8 +356,8 @@ mod clap {
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             OsStringValueParser::new()
                 .try_map(|arg| -> ExnMessageResult<_> {
-                    let arg = gix::path::into_bstr(std::path::PathBuf::from(arg));
-                    gix::pathspec::parse(arg.as_ref(), Default::default())?;
+                    let arg = legix::path::into_bstr(std::path::PathBuf::from(arg));
+                    legix::pathspec::parse(arg.as_ref(), Default::default())?;
                     Ok(arg.into_owned())
                 })
                 .parse_ref(cmd, arg, value)
@@ -390,11 +390,11 @@ mod clap {
     pub struct AsTime;
 
     impl TypedValueParser for AsTime {
-        type Value = gix::date::Time;
+        type Value = legix::date::Time;
 
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             StringValueParser::new()
-                .try_map(|arg| gix::date::parse(&arg, Some(gix::date::Zoned::now())).map_err(gix::Exn::into_inner))
+                .try_map(|arg| legix::date::parse(&arg, Some(legix::date::Zoned::now())).map_err(legix::Exn::into_inner))
                 .parse_ref(cmd, arg, value)
         }
     }
@@ -403,11 +403,11 @@ mod clap {
     pub struct AsPartialRefName;
 
     impl TypedValueParser for AsPartialRefName {
-        type Value = gix::refs::PartialName;
+        type Value = legix::refs::PartialName;
 
         fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
             AsBString
-                .try_map(gix::refs::PartialName::try_from)
+                .try_map(legix::refs::PartialName::try_from)
                 .parse_ref(cmd, arg, value)
         }
     }
@@ -489,10 +489,10 @@ mod value_parser_tests {
         #[derive(Debug, clap::Parser)]
         pub struct Cmd {
             #[clap(long, long="since", value_parser = AsTime)]
-            pub arg: Option<gix::date::Time>,
+            pub arg: Option<legix::date::Time>,
         }
 
         let c = Cmd::parse_from(["cmd", "--since", "2 weeks ago"]);
-        assert!(matches!(c.arg, Some(gix::date::Time { .. })));
+        assert!(matches!(c.arg, Some(legix::date::Time { .. })));
     }
 }

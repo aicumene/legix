@@ -5,14 +5,14 @@ use std::{
 
 /// A toy-version of `git log`.
 use clap::Parser;
-use gix::{
+use legix::{
     bstr::{BString, ByteSlice},
     date::time::format,
     revision::walk::Sorting,
 };
 
 fn main() {
-    let args = Args::parse_from(gix::env::args_os());
+    let args = Args::parse_from(legix::env::args_os());
     match run(args) {
         Ok(()) => {}
         Err(e) => eprintln!("error: {e}"),
@@ -61,7 +61,7 @@ struct Args {
 }
 
 fn run(args: Args) -> anyhow::Result<()> {
-    let repo = gix::discover(args.git_dir.as_deref().unwrap_or(Path::new(".")))?;
+    let repo = legix::discover(args.git_dir.as_deref().unwrap_or(Path::new(".")))?;
     let committish = args.committish.map(|mut c| {
         c.push_str("^{commit}");
         c

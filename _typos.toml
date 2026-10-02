@@ -3,10 +3,10 @@ extend-exclude = [
     "**/CHANGELOG.md",
     "*.response",
     "etc/corpus/repo_metadata.sample.jsonl",
-    "gix-config/benches/large_config_file.rs",
-    "gix-config/tests/fixtures/clusterfuzz-testcase-minimized-gix-config-parse-6431708583690240",
-    "gix-glob/tests/wildmatch/mod.rs",
-    "gix-path/tests/fixtures/fuzzed/54k-path-components.path",
+    "legix-config/benches/large_config_file.rs",
+    "legix-config/tests/fixtures/clusterfuzz-testcase-minimized-gix-config-parse-6431708583690240",
+    "legix-glob/tests/wildmatch/mod.rs",
+    "legix-path/tests/fixtures/fuzzed/54k-path-components.path",
 ]
 ignore-hidden = false
 

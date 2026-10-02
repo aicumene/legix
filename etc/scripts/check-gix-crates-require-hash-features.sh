@@ -4,7 +4,7 @@
 # an explicit hash algorithm.
 #
 # This catches accidental default-hash behavior and empty feature gates. Crates
-# that depend on gix-hash transitively must forward sha1/sha256 instead of
+# that depend on legix-hash transitively must forward sha1/sha256 instead of
 # compiling in an ambiguous hash configuration.
 
 set -euo pipefail

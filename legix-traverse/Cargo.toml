@@ -1,0 +1,44 @@
+lints.workspace = true
+
+[package]
+name = "legix-traverse"
+version = "0.62.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[features]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+
+[dependencies]
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+legix-hashtable = { version = "^0.17.0", path = "../legix-hashtable" }
+legix-revwalk = { version = "^0.36.0", path = "../legix-revwalk" }
+legix-commitgraph = { version = "^0.40.0", path = "../legix-commitgraph" }
+smallvec = "1.15.1"
+bitflags = "2"
+
+[dev-dependencies]
+legix-traverse = { path = ".", features = ["sha1", "sha256"] }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-odb = { path = "../legix-odb" }
+legix-object = { path = "../legix-object" }
+legix-commitgraph = { path = "../legix-commitgraph" }
+legix-path = { path = "../legix-path" }
+insta = "1.46.3"
+
+[package.metadata.docs.rs]
+features = ["sha1"]

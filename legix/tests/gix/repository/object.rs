@@ -1,0 +1,960 @@
+use crate::Result;
+use legix_date::parse::TimeBuf;
+use legix_odb::Header;
+use legix_pack::Find;
+use legix_testtools::tempfile;
+
+use crate::util::named_subrepo_opts;
+
+mod object_database_impl {
+    use crate::Result;
+    use legix_object::{Exists, Find, FindHeader};
+
+    #[test]
+    fn empty_tree_is_always_present() -> Result {
+        let repo = crate::named_subrepo_opts("make_basic_repo.sh", "unborn", legix::open::Options::isolated())?;
+        let empty_tree = legix::ObjectId::empty_tree(repo.object_hash());
+        assert!(repo.exists(&empty_tree));
+        assert_eq!(
+            repo.try_header(&empty_tree)?.expect("tree present"),
+            legix_object::Header {
+                kind: legix_object::Kind::Tree,
+                size: 0
+            }
+        );
+        let mut buf = repo.empty_reusable_buffer();
+        buf.push(42);
+        assert_eq!(
+            repo.try_find(&empty_tree, &mut buf)?.expect("tree present").kind,
+            legix_object::Kind::Tree
+        );
+        assert_eq!(buf.len(), 0, "the data in the buffer matches the empty tree");
+        Ok(())
+    }
+}
+
+mod edit_tree {
+    use crate::Result;
+    use legix::bstr::{BStr, BString};
+    use legix_object::tree::EntryKind;
+
+    use crate::util::hex_to_id;
+
+    #[test]
+    // Some part of the test validation the implementation for this exists, but it's needless nonetheless.
+    #[expect(clippy::needless_borrows_for_generic_args)]
+    fn from_head_tree() -> Result {
+        let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
+        let head_tree_id = repo.head_tree_id()?;
+        assert_eq!(
+            display_tree_snapshot(head_tree_id, &repo),
+            "Oid(1)
+├── that Oid(2).100644
+└── this Oid(3).100644
+"
+        );
+        let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
+        let that_id = hex_to_id("ce013625030ba8dba906f756967f9e9ca394464a");
+        let mut editor = repo.edit_tree(head_tree_id)?;
+        let actual = editor
+            .upsert("a/b", EntryKind::Blob, this_id)?
+            .upsert(String::from("this/subdir/that"), EntryKind::Blob, this_id)?
+            .upsert(BString::from("that/other/that"), EntryKind::Blob, that_id)?
+            .remove(BStr::new("that"))?
+            .remove(&String::from("that"))?
+            .remove(&BString::from("that"))?
+            .write()?;
+
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            "Oid(1)
+├── a
+│   └── b Oid(2).100644
+└── this
+    └── subdir
+        └── that Oid(2).100644
+",
+            "all trees are actually written, or else we couldn't visualize them."
+        );
+
+        let actual = editor
+            .upsert("a/b", EntryKind::Blob, that_id)?
+            .upsert(String::from("this/subdir/that"), EntryKind::Blob, this_id)?
+            .remove(BStr::new("does-not-exist"))?
+            .write()?;
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            "Oid(1)
+├── a
+│   └── b Oid(2).100644
+└── this
+    └── subdir
+        └── that Oid(3).100644
+",
+            "existing blobs can also be changed"
+        );
+
+        let mut cursor = editor.cursor_at("something/very/nested/to/add/entries/to")?;
+        let actual = cursor
+            .upsert("a/b", EntryKind::Blob, this_id)?
+            .upsert(String::from("this/subdir/that"), EntryKind::Blob, that_id)?
+            .upsert(BString::from("that/other/that"), EntryKind::Blob, that_id)?
+            .remove(BStr::new("that"))?
+            .write()?;
+
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            "Oid(1)
+├── a
+│   └── b Oid(2).100644
+└── this
+    └── subdir
+        └── that Oid(3).100644
+",
+            "all remaining subtrees are written from the cursor position"
+        );
+
+        let actual = editor.write()?;
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            "Oid(1)
+├── a
+│   └── b Oid(2).100644
+├── something
+│   └── very
+│       └── nested
+│           └── to
+│               └── add
+│                   └── entries
+│                       └── to
+│                           ├── a
+│                           │   └── b Oid(3).100644
+│                           └── this
+│                               └── subdir
+│                                   └── that Oid(2).100644
+└── this
+    └── subdir
+        └── that Oid(3).100644
+",
+            "it looks as it should when seen from the root tree"
+        );
+
+        editor.set_root(&head_tree_id.object()?.into_tree())?;
+        let actual = editor.write()?;
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            "Oid(1)
+├── that Oid(2).100644
+└── this Oid(3).100644
+",
+            "it's possible to set the editor to any tree after creating it, could help with memory re-use"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn submodules_are_not_checked_for_existence() -> Result {
+        let repo = crate::named_subrepo_opts("make_submodules.sh", "with-submodules", legix::open::Options::isolated())?
+            .with_object_memory();
+        let mut editor = repo.head_tree()?.edit()?;
+        let actual = editor.write()?;
+        assert_eq!(
+            actual,
+            repo.head_tree_id()?,
+            "Nothing changed, but it did validate the root tree that it would want to write"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn remove_leaf_rejects_tree_entries() -> Result {
+        let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
+        let head_tree_id = repo.head_tree_id()?;
+        let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
+        let mut editor = repo.edit_tree(head_tree_id)?;
+
+        editor.upsert("A/one", EntryKind::Blob, this_id)?;
+        let err = match editor.remove_leaf("A") {
+            Ok(_) => unreachable!("removing a tree as leaf must fail"),
+            Err(err) => err,
+        };
+        insta::assert_debug_snapshot!(err, "leaf-only removal must reject non-leaf entries", @"Cannot remove 'A' as leaf entry because it is a tree");
+
+        let actual = editor.remove_leaf("A/one")?.write()?;
+        assert_eq!(
+            display_tree_snapshot(actual, &repo),
+            display_tree_snapshot(head_tree_id, &repo),
+            "removing the leaf prunes the now-empty intermediate tree ('A')"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn missing_objects_and_illformed_path_components_trigger_error() -> Result {
+        let (repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
+        let tree = repo.head_tree_id()?.object()?.into_tree();
+        let mut editor = tree.edit()?;
+        let actual = editor
+            .upsert("non-existing", EntryKind::Blob, repo.object_hash().null())?
+            .write()?;
+        assert_eq!(
+            actual,
+            tree.id(),
+            "nulls are pruned before writing the tree, so it just rewrites the same tree"
+        );
+
+        let missing_id = "a".repeat(repo.object_hash().len_in_hex());
+        let err = editor
+            .upsert(
+                "non-existing",
+                EntryKind::Blob,
+                legix_hash::ObjectId::from_hex(missing_id.as_bytes()).expect("valid object id"),
+            )?
+            .write()
+            .unwrap_err();
+        insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "each entry to be written is checked for existence", @r#"
+        Message {
+            message: "The object Oid(1) (100644) at 'non-existing' could not be found",
+        }
+        "#);
+
+        let this_id = hex_to_id("317e9677c3bcffd006f9fc84bbb0a54ef1676197");
+        let err = editor
+            .remove("non-existing")?
+            .upsert(".git", EntryKind::Blob, this_id)?
+            .write()
+            .expect_err(".git is universally forbidden in trees");
+        insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "each component is validated", @"
+        The object Oid(1) (100644) has an invalid filename: '.git'
+        |
+        └─ The .git name may never be used
+        ");
+
+        Ok(())
+    }
+
+    mod utils {
+        use legix::{
+            Repository,
+            bstr::{BStr, ByteSlice},
+        };
+        use legix_hash::ObjectId;
+
+        fn display_tree_recursive(
+            tree_id: ObjectId,
+            repo: &Repository,
+            name: Option<&BStr>,
+        ) -> anyhow::Result<termtree::Tree<String>> {
+            let tree = repo.find_tree(tree_id)?.decode().map_err(legix::Error::from)?.to_owned();
+            let mut termtree = termtree::Tree::new(if let Some(name) = name {
+                if tree.entries.is_empty() {
+                    format!("{name} (empty)")
+                } else {
+                    name.to_string()
+                }
+            } else {
+                tree_id.to_string()
+            });
+
+            for entry in &tree.entries {
+                if entry.mode.is_tree() {
+                    termtree.push(display_tree_recursive(entry.oid, repo, Some(entry.filename.as_bstr()))?);
+                } else {
+                    termtree.push(format!(
+                        "{} {}.{}",
+                        entry.filename,
+                        entry.oid,
+                        entry.mode.kind().as_octal_str()
+                    ));
+                }
+            }
+            Ok(termtree)
+        }
+
+        pub(super) fn display_tree(tree_id: impl Into<ObjectId>, odb: &Repository) -> String {
+            display_tree_recursive(tree_id.into(), odb, None)
+                .expect("tree exists and everything was written")
+                .to_string()
+        }
+    }
+    use utils::display_tree;
+
+    fn display_tree_snapshot(tree_id: impl Into<legix_hash::ObjectId>, odb: &legix::Repository) -> String {
+        legix_testtools::normalize_hashes(&display_tree(tree_id, odb)).0
+    }
+}
+mod write_object {
+    use crate::Result;
+    use crate::repository::object::empty_bare_in_memory_repo;
+
+    #[test]
+    fn empty_tree() -> Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let oid = repo.write_object(legix::objs::TreeRef::empty())?;
+        assert_eq!(
+            oid,
+            repo.object_hash().empty_tree(),
+            "it produces a well-known empty tree id"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn commit_with_invalid_author() -> Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let actor = legix::actor::Signature {
+            name: "1 < 0".into(),
+            email: Default::default(),
+            time: Default::default(),
+        };
+        let commit = legix::objs::Commit {
+            tree: repo.object_hash().empty_tree(),
+            author: actor.clone(),
+            committer: actor,
+            parents: Default::default(),
+            encoding: None,
+            message: Default::default(),
+            extra_headers: vec![],
+        };
+        insta::assert_debug_snapshot!(repo.write_object(commit).expect_err("the actor is invalid so triggers an error when persisting it"), "the actor is invalid so triggers an error when persisting it", @r#"
+        I/O error (Other)
+        |
+        └─ Signature name or email must not contain '<', '>' or \n, "input"="1 < 0"
+        "#);
+        Ok(())
+    }
+
+    #[test]
+    fn blob_write_to_implementation() -> Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let blob = repo.empty_blob();
+
+        // Create a blob directly to test our WriteTo implementation
+        let actual_id = repo.write_object(&blob)?;
+        let actual_blob = repo.find_object(actual_id)?.into_blob();
+        assert_eq!(actual_id, repo.object_hash().empty_blob());
+
+        assert_eq!(actual_blob.data, blob.data);
+
+        Ok(())
+    }
+}
+
+mod write_blob {
+    use crate::Result;
+    use std::io::{Seek, SeekFrom};
+
+    use crate::repository::{
+        blob_id,
+        object::{empty_bare_in_memory_repo, empty_bare_repo},
+    };
+
+    #[test]
+    fn from_slice() -> Result {
+        let (_tmp, repo) = empty_bare_repo()?;
+        let expected = blob_id(&repo, b"hello world");
+        assert!(!repo.has_object(expected));
+
+        let oid = repo.write_blob(b"hello world")?;
+        assert_eq!(oid, expected);
+
+        let mut other_repo = legix::open_opts(repo.path(), legix::open::Options::isolated())?;
+        other_repo.objects.enable_object_memory();
+        assert!(
+            other_repo.has_object(oid),
+            "we definitely don't accidentally write to memory only"
+        );
+        let in_memory_id = other_repo.write_blob("hello world - to memory")?;
+        assert!(!repo.has_object(in_memory_id), "the object was never written to disk…");
+        assert!(
+            other_repo.has_object(in_memory_id),
+            "…and exists only in the instance that wrote it"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_stream() -> Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let mut cursor = std::io::Cursor::new(b"hello world");
+        let mut seek_cursor = cursor.clone();
+        let mut repo = repo.without_freelist();
+        let oid = repo.write_blob_stream(&mut cursor)?;
+        assert_eq!(oid, blob_id(&repo, b"hello world"));
+
+        seek_cursor.seek(SeekFrom::Start(6))?;
+        let oid = repo.write_blob_stream(&mut seek_cursor)?;
+        assert_eq!(oid, blob_id(&repo, b"world"), "it computes the object size correctly");
+
+        assert_eq!(
+            oid.object()?.data,
+            &b"world"[..],
+            "the seek position is taken into account, so only part of the input data is written"
+        );
+
+        assert!(repo.set_freelist(None).is_none(), "previous list was already dropped");
+        Ok(())
+    }
+}
+
+#[test]
+fn writes_avoid_io_using_duplicate_check() -> Result {
+    let (mut repo, _tmp) = crate::repo_rw("make_packed_and_loose.sh")?;
+    let store = legix::odb::loose::Store::at(repo.git_dir().join("objects"), repo.object_hash());
+    let loose_count = store.iter().count();
+    assert_eq!(loose_count, 3, "there are some loose objects");
+    assert_eq!(
+        repo.objects.iter()?.count() - loose_count,
+        6,
+        "there is packed objects as well"
+    );
+
+    for id in repo.objects.iter()? {
+        let id = id?;
+        assert!(repo.has_object(id));
+        let obj = repo.find_object(id)?;
+        let header = repo.find_header(id)?;
+        assert_eq!(obj.kind, header.kind(), "header and object agree");
+        assert_eq!(repo.try_find_header(id)?, Some(header));
+        use legix_object::Kind::*;
+        match obj.kind {
+            Commit => {
+                let commit = obj.into_commit();
+                let new_id = repo.write_object(commit.decode()?)?;
+                assert_eq!(new_id, id);
+            }
+            Tag => {
+                let tag = obj.into_tag();
+                let new_id = repo.write_object(tag.decode()?)?;
+                assert_eq!(new_id, id);
+            }
+            Tree => {
+                let tree = obj.into_tree();
+                let new_id = repo.write_object(tree.decode()?)?;
+                assert_eq!(new_id, id);
+            }
+            Blob => {
+                let blob = obj.into_blob();
+                let new_id = repo.write_blob(&blob.data)?;
+                assert_eq!(new_id, id);
+                let new_id = repo.write_blob_stream(std::io::Cursor::new(&blob.data))?;
+                assert_eq!(new_id, id);
+            }
+        }
+    }
+
+    assert_eq!(
+        store.iter().count(),
+        loose_count,
+        "no new object was written as all of them already existed"
+    );
+
+    {
+        let buf = repo.empty_reusable_buffer();
+        assert!(buf.is_empty(), "the freelist buffer must be clearerd");
+        let mut other_buf = buf.clone();
+        other_buf.inner = Vec::new();
+    }
+
+    let freelist = repo.set_freelist(None).expect("free list is present by default");
+    assert_eq!(
+        freelist.len(),
+        2,
+        "only one object was read at a time, and one is written"
+    );
+
+    let mut repo_clone = repo.clone();
+    assert!(
+        repo_clone.set_freelist(None).is_none(),
+        "new instances inherit the free-list configuration of their parent"
+    );
+    Ok(())
+}
+
+mod find {
+    use crate::Result;
+    use legix_pack::Find;
+
+    use crate::basic_repo;
+    use crate::repository::object::empty_bare_in_memory_repo;
+
+    #[test]
+    fn find_and_try_find_with_and_without_object_cache() -> Result {
+        let mut repo = basic_repo()?;
+
+        assert_eq!(
+            repo.worktrees()?.len(),
+            0,
+            "it's OK to query linked worktrees in a repo without worktrees"
+        );
+        for round in 1..=2 {
+            match round {
+                1 => repo.object_cache_size(None),
+                2 => repo.object_cache_size(128 * 1024),
+                _ => unreachable!("BUG"),
+            }
+            for commit_id in repo.head()?.into_peeled_id()?.ancestors().all()? {
+                let commit = commit_id?;
+                assert_eq!(commit.id().object()?.kind, legix_object::Kind::Commit);
+                assert_eq!(commit.id().header()?.kind(), legix_object::Kind::Commit);
+                if round == 2 {
+                    assert_eq!(
+                        commit.id().object()?.kind,
+                        legix_object::Kind::Commit,
+                        "repeated request triggers cache and doesn't fail"
+                    );
+                }
+                assert_eq!(
+                    commit.id().try_object()?.expect("exists").kind,
+                    legix_object::Kind::Commit,
+                );
+                assert_eq!(
+                    commit.id().try_header()?.expect("exists").kind(),
+                    legix_object::Kind::Commit,
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn empty_tree_can_always_be_found() -> Result {
+        let repo = basic_repo()?;
+        let empty_tree = legix::hash::ObjectId::empty_tree(repo.object_hash());
+        assert_eq!(repo.find_object(empty_tree)?.into_tree().iter().count(), 0);
+        assert!(repo.has_object(empty_tree));
+        assert_eq!(
+            repo.find_header(empty_tree)?,
+            legix_odb::find::Header::Loose {
+                kind: legix_object::Kind::Tree,
+                size: 0,
+            },
+            "empty tree is considered a loose object"
+        );
+        assert_eq!(
+            repo.try_find_object(empty_tree)?
+                .expect("present")
+                .into_tree()
+                .iter()
+                .count(),
+            0
+        );
+        assert_eq!(
+            repo.try_find_header(empty_tree)?,
+            Some(legix_odb::find::Header::Loose {
+                kind: legix_object::Kind::Tree,
+                size: 0,
+            }),
+            "empty tree is considered a loose object"
+        );
+
+        let mut buf = Vec::new();
+        assert!(
+            repo.objects.try_find(&empty_tree, &mut buf)?.is_none(),
+            "the lower level has no such special case so one can determine if this object exists or not"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_blob_can_be_found_if_it_exists() -> Result {
+        let repo = basic_repo()?;
+        let empty_blob = legix::hash::ObjectId::empty_blob(repo.object_hash());
+
+        assert_eq!(
+            repo.find_object(empty_blob)?.into_blob().data.len(),
+            0,
+            "The basic_repo fixture contains an empty blob"
+        );
+        assert!(repo.has_object(empty_blob));
+        assert_eq!(
+            repo.find_header(empty_blob)?,
+            legix_odb::find::Header::Loose {
+                kind: legix_object::Kind::Blob,
+                size: 0,
+            },
+            "empty blob is found when it exists in the repository"
+        );
+        assert_eq!(
+            repo.try_find_object(empty_blob)?
+                .expect("present")
+                .into_blob()
+                .data
+                .len(),
+            0
+        );
+        assert_eq!(
+            repo.try_find_header(empty_blob)?,
+            Some(legix_odb::find::Header::Loose {
+                kind: legix_object::Kind::Blob,
+                size: 0,
+            }),
+            "empty blob is found when it exists in the repository"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn empty_blob() -> Result {
+        let repo = empty_bare_in_memory_repo()?;
+        let empty_blob = repo.empty_blob();
+
+        assert_eq!(empty_blob.id, repo.object_hash().empty_blob());
+        assert_eq!(empty_blob.data.len(), 0);
+
+        assert!(!repo.has_object(empty_blob.id), "it doesn't exist by default");
+        repo.write_blob(&empty_blob.data)?;
+        assert!(repo.has_object(empty_blob.id), "it exists after it was written");
+
+        Ok(())
+    }
+}
+
+#[test]
+fn empty_objects_are_always_present_but_not_in_plumbing() -> Result {
+    let repo = empty_bare_in_memory_repo()?;
+    let empty_blob_id = repo.object_hash().empty_blob();
+
+    assert!(
+        !repo.has_object(empty_blob_id),
+        "empty blob is not present unless it actually exists"
+    );
+    assert!(!repo.objects.contains(&empty_blob_id));
+
+    let err = repo
+        .find_header(empty_blob_id)
+        .expect_err("empty blob doesn't exist automatically just like in Git");
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&err, &[]), "empty objects are always present but not in plumbing", @"An object with id Oid(1) could not be found");
+    assert!(err.is_not_found());
+    assert_eq!(repo.objects.try_header(&empty_blob_id)?, None);
+
+    assert_eq!(repo.try_find_header(empty_blob_id)?, None);
+    let err = repo.find_object(empty_blob_id).expect_err("empty blob doesn't exist");
+    insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&err, &[]), "empty objects are always present but not in plumbing", @"An object with id Oid(1) could not be found");
+    assert!(err.is_not_found());
+
+    assert!(repo.try_find_object(empty_blob_id)?.is_none());
+    let mut buf = Vec::new();
+    assert_eq!(repo.objects.try_find(&empty_blob_id, &mut buf)?, None);
+
+    Ok(())
+}
+
+mod tag {
+    use crate::Result;
+
+    #[test]
+    fn simple() -> Result {
+        let (repo, _keep) = crate::repo_rw("make_basic_repo.sh")?;
+        let current_head_id = repo.head_id()?;
+        let message = "a multi\nline message";
+        let tag_ref = repo.tag(
+            "v1.0.0",
+            current_head_id,
+            legix_object::Kind::Commit,
+            Some(repo.committer().expect("present")?),
+            message,
+            legix_ref::transaction::PreviousValue::MustNotExist,
+        )?;
+        assert_eq!(tag_ref, "refs/tags/v1.0.0");
+        assert_ne!(tag_ref.id(), current_head_id, "it points to the tag object");
+        let tag = tag_ref.id().object()?;
+        let tag = tag.try_to_tag_ref()?;
+        assert_eq!(tag.name, "v1.0.0");
+        assert_eq!(current_head_id, tag.target(), "the tag points to the commit");
+        assert_eq!(tag.target_kind, legix_object::Kind::Commit);
+        assert_eq!(
+            tag.tagger()?.expect("tagger").actor(),
+            repo.committer().expect("present")?.actor()
+        );
+        assert_eq!(tag.message, message);
+        Ok(())
+    }
+}
+
+mod commit_as {
+    use crate::Result;
+    use legix_date::parse::TimeBuf;
+    use legix_testtools::tempfile;
+
+    #[test]
+    fn specify_committer_and_author() -> Result {
+        let tmp = tempfile::tempdir()?;
+        let repo = crate::init_repo_isolated(&tmp, legix::create::Kind::WithWorktree)?.to_thread_local();
+        let empty_tree = repo.empty_tree();
+        let committer = legix::actor::Signature {
+            name: "c".into(),
+            email: "c@example.com".into(),
+            time: legix_date::parse_header("1 +0030").unwrap(),
+        };
+        let author = legix::actor::Signature {
+            name: "a".into(),
+            email: "a@example.com".into(),
+            time: legix_date::parse_header("3 +0100").unwrap(),
+        };
+
+        let commit_id = repo.commit_as(
+            committer.to_ref(&mut TimeBuf::default()),
+            author.to_ref(&mut TimeBuf::default()),
+            "HEAD",
+            "initial",
+            empty_tree.id,
+            legix::commit::NO_PARENT_IDS,
+        )?;
+        let commit = commit_id.object()?.into_commit();
+
+        let mut buf = TimeBuf::default();
+        assert_eq!(commit.committer()?, committer.to_ref(&mut buf));
+        assert_eq!(commit.author()?, author.to_ref(&mut buf));
+        Ok(())
+    }
+}
+
+mod commit {
+    use crate::Result;
+    use legix_testtools::tempfile;
+
+    use crate::{freeze_time, restricted_and_git, util::hex_to_id};
+
+    fn assert_stable_id(
+        repo: &legix::Repository,
+        actual: legix_hash::ObjectId,
+        expected_sha1: &str,
+        expected_sha256: &str,
+    ) {
+        assert_eq!(actual.kind(), repo.object_hash());
+        let expected_hash = match repo.object_hash() {
+            legix_hash::Kind::Sha1 => expected_sha1,
+            legix_hash::Kind::Sha256 => expected_sha256,
+            _ => unreachable!(),
+        };
+        assert_eq!(actual, expected_hash);
+    }
+
+    #[test]
+    fn parent_in_initial_commit_causes_failure() -> Result {
+        let tmp = tempfile::tempdir()?;
+        let repo = legix::ThreadSafeRepository::init_opts(
+            &tmp,
+            legix::create::Kind::WithWorktree,
+            Default::default(),
+            crate::restricted(),
+        )?
+        .to_thread_local();
+        let empty_tree_id = repo.write_object(legix::objs::Tree::empty())?.detach();
+        let err = repo
+            .commit("HEAD", "initial", empty_tree_id, [empty_tree_id])
+            .expect_err("an initial commit cannot have a parent");
+        insta::assert_debug_snapshot!(legix_testtools::redact_debug_snapshot(&(err), &[]), "the expected previous reference value is absent", @r#"
+        Could not prepare reference edit, "reference"="HEAD", "referent"="refs/heads/main"
+        |
+        └─ The reference must exist with content Oid(1)
+        "#);
+        assert!(err.is_not_found(), "the expected previous reference value is absent");
+        assert_eq!(
+            err.metadata().next().expect("the failed edit has context")["reference"],
+            legix::error::MetadataValue::from(b"HEAD".as_slice()),
+            "the error identifies the requested reference"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn single_line_initial_commit_empty_tree_ref_nonexisting() -> Result {
+        let _environment = legix_testtools::isolate_git_environment()?;
+        let _env = freeze_time();
+        let tmp = tempfile::tempdir()?;
+        let object_hash = legix_testtools::object_hash();
+        let repo = legix::ThreadSafeRepository::init_opts(
+            &tmp,
+            legix::create::Kind::WithWorktree,
+            legix::create::Options {
+                object_hash: Some(object_hash),
+                ..Default::default()
+            },
+            restricted_and_git(),
+        )?
+        .to_thread_local();
+        let empty_tree_id = repo.write_object(legix::objs::Tree::empty())?;
+        let commit_id = repo.commit("HEAD", "initial", empty_tree_id, legix::commit::NO_PARENT_IDS)?;
+        assert_eq!(
+            commit_id,
+            hex_to_id("3a774843723a713a8d361b4d4d98ad4092ef05bd"),
+            "the commit id is stable"
+        );
+
+        let head = repo.head()?.try_into_referent().expect("born");
+        assert_eq!(head, "refs/heads/main", "'main' is the default name");
+        assert_eq!(
+            head.log_iter()
+                .rev()?
+                .expect("log present")
+                .next()
+                .expect("one line")?
+                .message,
+            "commit (initial): initial"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn multi_line_commit_message_uses_first_line_in_ref_log_ref_nonexisting() -> Result {
+        let _environment = legix_testtools::isolate_git_environment()?;
+        let _env = freeze_time();
+        let (repo, _keep) = crate::repo_rw_opts("make_basic_repo.sh", restricted_and_git())?;
+        let parent = repo.find_reference("HEAD")?.peel_to_id()?;
+        let empty_tree_id = parent.object()?.to_commit_ref_iter().tree_id().expect("tree to be set");
+        assert_eq!(
+            parent
+                .try_object()?
+                .expect("present")
+                .to_commit_ref_iter()
+                .tree_id()
+                .expect("tree to be set"),
+            empty_tree_id,
+            "try and non-try work the same"
+        );
+        let first_commit_id = repo.commit("HEAD", "hello there \r\n\nthe body", empty_tree_id, Some(parent))?;
+        assert_stable_id(
+            &repo,
+            first_commit_id.into(),
+            "e7c7273539cfc1a52802fa9d61aa578f6ccebcb4",
+            "10d26eeb1167a0cefa12fa0738d36eb4e55adb43e8837dfa3d38e7f8b019140e",
+        );
+
+        let head_log_entries: Vec<_> = repo
+            .head()?
+            .log_iter()
+            .rev()?
+            .expect("log present")
+            .map(std::result::Result::unwrap)
+            .map(|l| l.message)
+            .collect();
+        assert_eq!(
+            head_log_entries,
+            vec!["commit: hello there", "commit: c2", "commit (initial): c1"],
+            "we get the actual HEAD log, not the log of some reference"
+        );
+        let current_commit = repo.head()?.into_peeled_id()?;
+        assert_eq!(current_commit, first_commit_id, "the commit was set");
+
+        let second_commit_id = repo.commit(
+            "refs/heads/new-branch",
+            "committing into a new branch creates it",
+            empty_tree_id,
+            Some(first_commit_id),
+        )?;
+
+        assert_stable_id(
+            &repo,
+            second_commit_id.into(),
+            "e1412f169e0812eb260601bdab3854ca0f1a7b33",
+            "0e0844f01f6ee495e23f7c5ca0431205e4b547347905df2e4dbd3d6812cb79da",
+        );
+
+        let mut branch = repo.find_reference("new-branch")?;
+        let current_commit = branch.peel_to_id()?;
+        assert_eq!(current_commit, second_commit_id, "the commit was set");
+
+        let mut log = branch.log_iter();
+        let mut log_iter = log.rev()?.expect("log present");
+        assert_eq!(
+            log_iter.next().expect("one line")?.message,
+            "commit: committing into a new branch creates it"
+        );
+        assert!(
+            log_iter.next().is_none(),
+            "there is only one log line in the new branch"
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn new_commit_as() -> Result {
+    let repo = empty_bare_in_memory_repo()?;
+    let empty_tree = repo.empty_tree();
+    let committer = legix::actor::Signature {
+        name: "c".into(),
+        email: "c@example.com".into(),
+        time: legix_date::parse_header("1 +0030").unwrap(),
+    };
+    let author = legix::actor::Signature {
+        name: "a".into(),
+        email: "a@example.com".into(),
+        time: legix_date::parse_header("3 +0100").unwrap(),
+    };
+
+    let commit = repo.new_commit_as(
+        committer.to_ref(&mut TimeBuf::default()),
+        author.to_ref(&mut TimeBuf::default()),
+        "message",
+        empty_tree.id,
+        legix::commit::NO_PARENT_IDS,
+    )?;
+
+    assert_eq!(commit.id.kind(), repo.object_hash());
+    let expected_hex = match repo.object_hash() {
+        legix_hash::Kind::Sha1 => "b51277f2b2ea77676dd6fa877b5eb5ba2f7094d9",
+        legix_hash::Kind::Sha256 => "9e0929adee3bcd10a6f37c45101712d819f951102707b70baee48d4868d45b0d",
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        commit.id, expected_hex,
+        "The commit-id is stable as the author/committer is controlled"
+    );
+
+    let commit = commit.decode()?;
+
+    let mut buf = TimeBuf::default();
+    assert_eq!(commit.committer()?, committer.to_ref(&mut buf));
+    assert_eq!(commit.author()?, author.to_ref(&mut buf));
+    assert_eq!(commit.message, "message");
+    assert_eq!(commit.tree(), empty_tree.id);
+    assert_eq!(commit.parents.len(), 0);
+
+    assert!(repo.head()?.is_unborn(), "The head-ref wasn't touched");
+    Ok(())
+}
+
+#[test]
+fn new_commit() -> Result {
+    let mut repo = empty_bare_in_memory_repo()?;
+    let mut config = repo.config_snapshot_mut();
+    config.set_value(&legix::config::tree::User::NAME, "user")?;
+    config.set_value(&legix::config::tree::User::EMAIL, "user@example.com")?;
+    config.commit()?;
+
+    let empty_tree_id = repo.object_hash().empty_tree();
+    let commit = repo.new_commit("initial", empty_tree_id, legix::commit::NO_PARENT_IDS)?;
+    let commit = commit.decode()?;
+
+    assert_eq!(commit.message, "initial");
+    assert_eq!(commit.tree(), empty_tree_id);
+    assert_eq!(commit.parents.len(), 0);
+
+    assert!(repo.head()?.is_unborn(), "The head-ref wasn't touched");
+    Ok(())
+}
+
+fn empty_bare_in_memory_repo() -> Result<legix::Repository> {
+    Ok(named_subrepo_opts("make_basic_repo.sh", "bare.git", legix::open::Options::isolated())?.with_object_memory())
+}
+
+fn empty_bare_repo() -> Result<(tempfile::TempDir, legix::Repository)> {
+    let tmp = tempfile::tempdir()?;
+    let object_hash = legix_testtools::object_hash();
+    let repo = legix::ThreadSafeRepository::init_opts(
+        tmp.path(),
+        legix::create::Kind::Bare,
+        legix::create::Options {
+            object_hash: Some(object_hash),
+            ..legix::create::Options::default()
+        },
+        legix::open::Options::isolated(),
+    )?
+    .into();
+    Ok((tmp, repo))
+}

@@ -1,0 +1,354 @@
+use legix_hash::ObjectId;
+use legix_ref::{
+    FullName, PartialNameRef, Target,
+    transaction::{PreviousValue, RefEdit},
+};
+
+use crate::{Reference, Result, bstr::BString, ext::ReferenceExt, reference};
+use legix_error::{ErrorExt, ResultExt};
+
+/// Obtain and alter references comfortably
+impl crate::Repository {
+    /// Create a lightweight tag with given `name` (and without `refs/tags/` prefix) pointing to the given `target`, and return it as reference.
+    ///
+    /// It will be created with `constraint` which is most commonly to [only create it](PreviousValue::MustNotExist)
+    /// or to [force overwriting a possibly existing tag](PreviousValue::Any).
+    pub fn tag_reference(
+        &self,
+        name: impl AsRef<str>,
+        target: impl Into<ObjectId>,
+        constraint: PreviousValue,
+    ) -> Result<Reference<'_>> {
+        let id = target.into();
+        let name = format!("refs/tags/{}", name.as_ref()).try_into().map_err(
+            |err: legix_validate::reference::name::Error| {
+                err.and_raise(legix_error::validation("The tag reference name is invalid"))
+            },
+        )?;
+        let mut edits = self.edit_reference(RefEdit::update(name, id, constraint, ""))?;
+        assert_eq!(edits.len(), 1, "reference splits should ever happen");
+        let edit = edits.pop().expect("exactly one item");
+        Ok(Reference {
+            inner: legix_ref::Reference {
+                name: edit.name,
+                target: id.into(),
+                peeled: None,
+            },
+            repo: self,
+        })
+    }
+
+    /// Returns the currently set namespace for references, or `None` if it is not set.
+    ///
+    /// Namespaces allow to partition references, and is configured per `Easy`.
+    pub fn namespace(&self) -> Option<&legix_ref::Namespace> {
+        self.refs.namespace.as_ref()
+    }
+
+    /// Remove the currently set reference namespace and return it, affecting only this `Easy`.
+    pub fn clear_namespace(&mut self) -> Option<legix_ref::Namespace> {
+        self.refs.namespace.take()
+    }
+
+    /// Set the reference namespace to the given value, like `"foo"` or `"foo/bar"`.
+    ///
+    /// Note that this value is shared across all `Easy…` instances as the value is stored in the shared `Repository`.
+    pub fn set_namespace<'a, Name, E>(
+        &mut self,
+        namespace: Name,
+    ) -> std::result::Result<Option<legix_ref::Namespace>, legix_validate::reference::name::Error>
+    where
+        Name: TryInto<&'a PartialNameRef, Error = E>,
+        legix_validate::reference::name::Error: From<E>,
+    {
+        let namespace = legix_ref::namespace::expand(namespace)?;
+        Ok(self.refs.namespace.replace(namespace))
+    }
+
+    // TODO: more tests or usage
+    /// Create a new reference with `name`, like `refs/heads/branch`, pointing to `target`, adhering to `constraint`
+    /// during creation and writing `log_message` into the reflog. Note that a ref-log will be written even if `log_message` is empty.
+    ///
+    /// Note that this accepts any valid full reference name, including `refs/heads/HEAD`.
+    /// Git rejects creating a local branch with that name in branch-specific code paths, but this API operates on generic
+    /// references instead. Branch names can be validated with [`legix_validate::reference::branch_name()`].
+    ///
+    /// The newly created Reference is returned.
+    pub fn reference<Name, E>(
+        &self,
+        name: Name,
+        target: impl Into<ObjectId>,
+        constraint: PreviousValue,
+        log_message: impl Into<BString>,
+    ) -> Result<Reference<'_>>
+    where
+        Name: TryInto<FullName, Error = E>,
+        legix_validate::reference::name::Error: From<E>,
+    {
+        self.reference_inner(
+            name.try_into()
+                .map_err(legix_validate::reference::name::Error::from)
+                .map_err(|err| err.and_raise(legix_error::validation("The reference name is invalid")))?,
+            target.into(),
+            constraint,
+            log_message.into(),
+        )
+    }
+
+    fn reference_inner(
+        &self,
+        name: FullName,
+        id: ObjectId,
+        constraint: PreviousValue,
+        log_message: BString,
+    ) -> Result<Reference<'_>> {
+        let mut edits = self.edit_reference(RefEdit::update(name, id, constraint, log_message))?;
+        assert_eq!(
+            edits.len(),
+            1,
+            "only one reference can be created, splits aren't possible"
+        );
+
+        Ok(legix_ref::Reference {
+            name: edits.pop().expect("exactly one edit").name,
+            target: Target::Object(id),
+            peeled: None,
+        }
+        .attach(self))
+    }
+
+    /// Edit a single reference as described in `edit`, and write reference logs as `log_committer`.
+    ///
+    /// One or more `RefEdit`s  are returned - symbolic reference splits can cause more edits to be performed. All edits have the previous
+    /// reference values set to the ones encountered at rest after acquiring the respective reference's lock.
+    pub fn edit_reference(&self, edit: RefEdit) -> Result<Vec<RefEdit>> {
+        self.edit_references(Some(edit))
+    }
+
+    /// Edit one or more references as described by their `edits`.
+    /// Note that one can set the committer name for use in the ref-log by temporarily
+    /// [overriding the git-config](crate::Repository::config_snapshot_mut()), or use
+    /// [`edit_references_as(committer)`](Self::edit_references_as()) for convenience.
+    ///
+    /// Returns all reference edits, which might be more than where provided due the splitting of symbolic references, and
+    /// whose previous (_old_) values are the ones seen on in storage after the reference was locked.
+    pub fn edit_references(&self, edits: impl IntoIterator<Item = RefEdit>) -> Result<Vec<RefEdit>> {
+        self.edit_references_as(edits, self.committer().transpose()?)
+    }
+
+    /// A way to apply reference `edits` similar to [edit_references(…)](Self::edit_references()), but set a specific
+    /// `commiter` for use in the reflog. It can be `None` if it's the purpose `edits` are configured to not update the
+    /// reference log, or cause a failure otherwise.
+    pub fn edit_references_as(
+        &self,
+        edits: impl IntoIterator<Item = RefEdit>,
+        committer: Option<legix_actor::SignatureRef<'_>>,
+    ) -> Result<Vec<RefEdit>> {
+        let (file_lock_fail, packed_refs_lock_fail) = self.config.lock_timeout().map_err(|err| {
+            err.and_raise(legix_error::message(
+                "Could not interpret core.filesRefLockTimeout or core.packedRefsTimeout, it must be the number in \
+                 milliseconds to wait for locks or negative to wait forever",
+            ))
+        })?;
+        Ok(self
+            .refs
+            .transaction()
+            .prepare(edits, file_lock_fail, packed_refs_lock_fail)
+            .or_erased()?
+            .commit(committer)
+            .or_erased()?)
+    }
+
+    /// Return the repository head, an abstraction to help dealing with the `HEAD` reference.
+    ///
+    /// The `HEAD` reference can be in various states, for more information, the documentation of [`Head`](crate::Head).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let head = repo.head()?;
+    ///
+    /// assert_eq!(head.referent_name().expect("born"), "refs/heads/main");
+    /// assert!(!head.is_detached());
+    /// assert!(!head.is_unborn());
+    /// # Ok(()) }
+    /// ```
+    pub fn head(&self) -> Result<crate::Head<'_>> {
+        let head = self.find_reference("HEAD")?;
+        Ok(match head.inner.target {
+            Target::Symbolic(branch) => match self.find_reference(&branch) {
+                Ok(r) => crate::head::Kind::Symbolic(r.detach()),
+                Err(err) if err.is_not_found() => crate::head::Kind::Unborn(branch),
+                Err(err) => return Err(err),
+            },
+            Target::Object(target) => crate::head::Kind::Detached {
+                target,
+                peeled: head.inner.peeled,
+            },
+        }
+        .attach(self))
+    }
+
+    /// Resolve the `HEAD` reference, follow and peel its target and obtain its object id,
+    /// following symbolic references and tags until a commit is found.
+    ///
+    /// Note that this may fail for various reasons, most notably because the repository
+    /// is freshly initialized and doesn't have any commits yet.
+    ///
+    /// Also note that the returned id is likely to point to a commit, but could also
+    /// point to a tree or blob. It won't, however, point to a tag as these are always peeled.
+    pub fn head_id(&self) -> Result<crate::Id<'_>> {
+        self.head()?.into_peeled_id()
+    }
+
+    /// Return the name to the symbolic reference `HEAD` points to, or `None` if the head is detached.
+    ///
+    /// The difference to [`head_ref()`](Self::head_ref()) is that the latter requires the reference to exist,
+    /// whereas here we merely return a the name of the possibly unborn reference.
+    pub fn head_name(&self) -> Result<Option<FullName>> {
+        Ok(self.head()?.referent_name().map(std::borrow::ToOwned::to_owned))
+    }
+
+    /// Return the reference that `HEAD` points to, or `None` if the head is detached or unborn.
+    pub fn head_ref(&self) -> Result<Option<Reference<'_>>> {
+        Ok(self.head()?.try_into_referent())
+    }
+
+    /// Return the commit object the `HEAD` reference currently points to after peeling it fully,
+    /// following symbolic references and tags until a commit is found.
+    ///
+    /// Note that this may fail for various reasons, most notably because the repository
+    /// is freshly initialized and doesn't have any commits yet. It could also fail if the
+    /// head does not point to a commit.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let head = repo.head_commit()?;
+    ///
+    /// assert_eq!(head.decode()?.message, "c2\n");
+    /// assert_eq!(repo.head_tree_id()?, head.tree_id()?);
+    ///
+    /// #[cfg(feature = "revision")]
+    /// {
+    ///     let previous = repo.rev_parse_single("HEAD^")?;
+    ///     assert_ne!(previous, head.id);
+    /// }
+    /// # Ok(()) }
+    /// ```
+    pub fn head_commit(&self) -> Result<crate::Commit<'_>> {
+        self.head()?.peel_to_commit()
+    }
+
+    /// Return the tree id the `HEAD` reference currently points to after peeling it fully,
+    /// following symbolic references and tags until a commit is found.
+    ///
+    /// Note that this may fail for various reasons, most notably because the repository
+    /// is freshly initialized and doesn't have any commits yet. It could also fail if the
+    /// head does not point to a commit.
+    pub fn head_tree_id(&self) -> Result<crate::Id<'_>> {
+        Ok(self.head_commit()?.tree_id().or_erased()?)
+    }
+
+    /// Like [`Self::head_tree_id()`], but will return an empty tree hash if the repository HEAD is unborn.
+    pub fn head_tree_id_or_empty(&self) -> Result<crate::Id<'_>> {
+        let mut head = self.head()?;
+        if head.is_unborn() {
+            Ok(self.empty_tree().id())
+        } else {
+            Ok(head.peel_to_commit()?.tree_id().or_erased()?)
+        }
+    }
+
+    /// Return the tree object the `HEAD^{tree}` reference currently points to after peeling it fully,
+    /// following symbolic references and tags until a tree is found.
+    ///
+    /// Note that this may fail for various reasons, most notably because the repository
+    /// is freshly initialized and doesn't have any commits yet. It could also fail if the
+    /// head does not point to a tree, unlikely but possible.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let tree = repo.head_tree()?;
+    ///
+    /// assert_eq!(tree.find_entry("this").expect("present").filename(), "this");
+    /// # Ok(()) }
+    /// ```
+    pub fn head_tree(&self) -> Result<crate::Tree<'_>> {
+        self.head_commit()?.tree()
+    }
+
+    /// Find the reference with the given partial or full `name`, like `main`, `HEAD`, `heads/branch` or `origin/other`,
+    /// or return an error if it wasn't found.
+    ///
+    /// Consider [`try_find_reference(…)`](crate::Repository::try_find_reference()) if the reference might not exist
+    /// without that being considered an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let mut reference = repo.find_reference("main")?;
+    ///
+    /// assert_eq!(reference, "refs/heads/main");
+    /// assert_eq!(reference.peel_to_commit()?.message()?.title, "c2");
+    /// # Ok(()) }
+    /// ```
+    pub fn find_reference<'a, Name, E>(&self, name: Name) -> Result<Reference<'_>>
+    where
+        Name: TryInto<&'a PartialNameRef, Error = E>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+    {
+        Ok(Reference::from_ref(self.refs.find(name)?, self))
+    }
+
+    /// Return a platform for iterating references.
+    ///
+    /// Common kinds of iteration are [all](crate::reference::iter::Platform::all()) or [prefixed](crate::reference::iter::Platform::prefixed())
+    /// references.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    /// # mod doctest { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/doctest.rs")); }
+    /// # let repo = doctest::open_repo(doctest::basic_repo_dir()?)?;
+    /// let branches = repo
+    ///     .references()?
+    ///     .local_branches()?
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    ///
+    /// assert_eq!(branches, vec!["refs/heads/main".to_owned()]);
+    /// # Ok(()) }
+    /// ```
+    pub fn references(&self) -> Result<reference::iter::Platform<'_>> {
+        Ok(reference::iter::Platform {
+            platform: self.refs.iter()?,
+            repo: self,
+        })
+    }
+
+    /// Try to find the reference named `name`, like `main`, `heads/branch`, `HEAD` or `origin/other`, and return it.
+    ///
+    /// Otherwise return `None` if the reference wasn't found.
+    /// If the reference is expected to exist, use [`find_reference()`](crate::Repository::find_reference()).
+    pub fn try_find_reference<'a, Name, E>(&self, name: Name) -> Result<Option<Reference<'_>>>
+    where
+        Name: TryInto<&'a PartialNameRef, Error = E>,
+        std::result::Result<&'a PartialNameRef, E>: ResultExt<Success = &'a PartialNameRef>,
+    {
+        Ok(self.refs.try_find(name)?.map(|r| Reference::from_ref(r, self)))
+    }
+}

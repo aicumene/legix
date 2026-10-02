@@ -1,6 +1,6 @@
 ##### The year in numbers
 
-And 365 days later as of 2025-12-31, we are counting **211,983 SLOC, up by 33,827**, which is 91% *of the year before* (➡*OTYB*) in **14845 commits up by 1,302** and 57%OTYB. There are **65 crates (clearly I miscounted last year)** and 2 binaries, with `ein` and `gix` as part of `gitoxide`. There are **186 unique authors (up by 35 and 76%OTYB)**. This means ~93 lines per day in ~3.5 commits each day. On GitHub there are **10695 stars (up by 1,416 which is 70%OTYB)** for ~3.9 stars per day.
+And 365 days later as of 2025-12-31, we are counting **211,983 SLOC, up by 33,827**, which is 91% *of the year before* (➡*OTYB*) in **14845 commits up by 1,302** and 57%OTYB. There are **65 crates (clearly I miscounted last year)** and 2 binaries, with `ein` and `legix` as part of `gitoxide`. There are **186 unique authors (up by 35 and 76%OTYB)**. This means ~93 lines per day in ~3.5 commits each day. On GitHub there are **10695 stars (up by 1,416 which is 70%OTYB)** for ~3.9 stars per day.
 
 The tool invocation `ein tool estimate-hours` now rates the project cost at **12284 hours (up by 1655 which is 87%OTYB) or ~1535 x 8-hour working days**, for an average working time of **4.20 hours in the past 365 days**.
 

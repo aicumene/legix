@@ -9,9 +9,9 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use clap::{CommandFactory, Parser};
-use gitoxide_core as core;
-use gitoxide_core::{pack::verify, repository::PathsOrPatterns};
-use gix::bstr::{BString, io::BufReadExt};
+use legix_core as core;
+use legix_core::{pack::verify, repository::PathsOrPatterns};
+use legix::bstr::{BString, io::BufReadExt};
 
 use crate::{
     plumbing::{
@@ -38,7 +38,7 @@ pub mod async_util {
         range: impl Into<Option<ProgressRange>>,
     ) -> (
         Option<prodash::render::line::JoinHandle>,
-        gix_features::progress::DoOrDiscard<prodash::tree::Item>,
+        legix_features::progress::DoOrDiscard<prodash::tree::Item>,
     ) {
         use crate::shared::{self, STANDARD_RANGE};
         shared::init_env_logger();
@@ -55,7 +55,7 @@ pub mod async_util {
 }
 
 pub fn main() -> Result<()> {
-    let args: Args = Args::parse_from(gix::env::args_os());
+    let args: Args = Args::parse_from(legix::env::args_os());
     let thread_limit = args.threads;
     let verbose = args.verbose;
     let format = args.format;
@@ -80,8 +80,8 @@ pub fn main() -> Result<()> {
 
     let repository = {
         let config = config.clone();
-        move |mut mode: Mode| -> Result<gix::Repository> {
-            let mut mapping: gix::sec::trust::Mapping<gix::open::Options> = Default::default();
+        move |mut mode: Mode| -> Result<legix::Repository> {
+            let mut mapping: legix::sec::trust::Mapping<legix::open::Options> = Default::default();
             if !config.is_empty() {
                 mode = match mode {
                     Mode::Lenient => Mode::Strict,
@@ -96,7 +96,7 @@ pub fn main() -> Result<()> {
                 mode,
                 Mode::StrictWithGitInstallConfig | Mode::LenientWithGitInstallConfig
             );
-            let to_match_settings = |mut opts: gix::open::Options| {
+            let to_match_settings = |mut opts: legix::open::Options| {
                 opts.permissions.config.git_binary = git_installation;
                 opts.permissions.attributes.git_binary = git_installation;
                 if config.is_empty() {
@@ -107,25 +107,25 @@ pub fn main() -> Result<()> {
             };
             mapping.full.modify(to_match_settings);
             mapping.reduced.modify(to_match_settings);
-            let mut repo = gix::ThreadSafeRepository::discover_with_environment_overrides_opts(
+            let mut repo = legix::ThreadSafeRepository::discover_with_environment_overrides_opts(
                 repository,
                 Default::default(),
                 mapping,
             )
-            .map(gix::Repository::from)?;
+            .map(legix::Repository::from)?;
             if !config.is_empty() {
                 repo.config_snapshot_mut()
-                    .append_config(config.iter(), gix::config::Source::Cli)
+                    .append_config(config.iter(), legix::config::Source::Cli)
                     .context("Unable to parse command-line configuration")?;
             }
             {
                 let mut config_mut = repo.config_snapshot_mut();
                 // Enable precious file parsing unless the user made a choice.
                 if config_mut
-                    .boolean(gix::config::tree::Gitoxide::PARSE_PRECIOUS)?
+                    .boolean(legix::config::tree::Gitoxide::PARSE_PRECIOUS)?
                     .is_none()
                 {
-                    config_mut.set_raw_value(gix::config::tree::Gitoxide::PARSE_PRECIOUS, "true")?;
+                    config_mut.set_raw_value(legix::config::tree::Gitoxide::PARSE_PRECIOUS, "true")?;
                 }
             }
             Ok(repo)
@@ -150,7 +150,7 @@ pub fn main() -> Result<()> {
     #[expect(unsafe_code)]
     unsafe {
         // SAFETY: The closure doesn't use mutexes or memory allocation, so it should be safe to call from a signal handler.
-        gix::interrupt::init_handler(1, {
+        legix::interrupt::init_handler(1, {
             let should_interrupt = Arc::clone(&should_interrupt);
             move || should_interrupt.store(true, Ordering::SeqCst)
         })?;
@@ -433,11 +433,11 @@ pub fn main() -> Result<()> {
                             }
                         }),
                         untracked: untracked.map(|mode| match mode.unwrap_or_default() {
-                            crate::plumbing::options::status::Untracked::No => gix::status::UntrackedFiles::None,
+                            crate::plumbing::options::status::Untracked::No => legix::status::UntrackedFiles::None,
                             crate::plumbing::options::status::Untracked::Normal => {
-                                gix::status::UntrackedFiles::Collapsed
+                                legix::status::UntrackedFiles::Collapsed
                             }
-                            crate::plumbing::options::status::Untracked::All => gix::status::UntrackedFiles::Files,
+                            crate::plumbing::options::status::Untracked::All => legix::status::UntrackedFiles::Files,
                         }),
                         output_format: format,
                         statistics,
@@ -546,14 +546,14 @@ pub fn main() -> Result<()> {
                             .collect(),
                         format: format.map(|f| match f {
                             crate::plumbing::options::archive::Format::Internal => {
-                                gix::worktree::archive::Format::InternalTransientNonPersistable
+                                legix::worktree::archive::Format::InternalTransientNonPersistable
                             }
-                            crate::plumbing::options::archive::Format::Tar => gix::worktree::archive::Format::Tar,
+                            crate::plumbing::options::archive::Format::Tar => legix::worktree::archive::Format::Tar,
                             crate::plumbing::options::archive::Format::TarGz => {
-                                gix::worktree::archive::Format::TarGz { compression_level }
+                                legix::worktree::archive::Format::TarGz { compression_level }
                             }
                             crate::plumbing::options::archive::Format::Zip => {
-                                gix::worktree::archive::Format::Zip { compression_level }
+                                legix::worktree::archive::Format::Zip { compression_level }
                             }
                         }),
                     },
@@ -713,9 +713,9 @@ pub fn main() -> Result<()> {
         Subcommands::Credential(cmd) => core::repository::credential(
             repository(Mode::StrictWithGitInstallConfig).ok(),
             match cmd {
-                credential::Subcommands::Fill => gix::credentials::program::main::Action::Get,
-                credential::Subcommands::Approve => gix::credentials::program::main::Action::Store,
-                credential::Subcommands::Reject => gix::credentials::program::main::Action::Erase,
+                credential::Subcommands::Fill => legix::credentials::program::main::Action::Get,
+                credential::Subcommands::Approve => legix::credentials::program::main::Action::Store,
+                credential::Subcommands::Reject => legix::credentials::program::main::Action::Erase,
             },
         ),
         #[cfg(any(feature = "gitoxide-core-async-client", feature = "gitoxide-core-blocking-client"))]
@@ -730,9 +730,9 @@ pub fn main() -> Result<()> {
                     repository(Mode::LenientWithGitInstallConfig)?,
                     name.as_deref(),
                     if push {
-                        gix::remote::Direction::Push
+                        legix::remote::Direction::Push
                     } else {
-                        gix::remote::Direction::Fetch
+                        legix::remote::Direction::Fetch
                     },
                     all,
                     std::io::stdout(),
@@ -1250,7 +1250,7 @@ pub fn main() -> Result<()> {
                         progress_keep_open,
                         core::pack::index::PROGRESS_RANGE,
                         move |progress, out, _err| {
-                            use gitoxide_core::pack::index::PathOrRead;
+                            use legix_core::pack::index::PathOrRead;
                             let input = if let Some(path) = pack_path {
                                 PathOrRead::Path(path)
                             } else {
@@ -1272,7 +1272,7 @@ pub fn main() -> Result<()> {
                                     format,
                                     out,
                                     object_hash,
-                                    should_interrupt: &gix::interrupt::IS_INTERRUPTED,
+                                    should_interrupt: &legix::interrupt::IS_INTERRUPTED,
                                 },
                             )
                         },
@@ -1643,7 +1643,7 @@ pub fn main() -> Result<()> {
                         repository(Mode::StrictWithGitInstallConfig)?,
                         stdin_or_bail()
                             .ok()
-                            .map(|stdin| stdin.byte_lines().filter_map(Result::ok).map(gix::bstr::BString::from)),
+                            .map(|stdin| stdin.byte_lines().filter_map(Result::ok).map(legix::bstr::BString::from)),
                         progress,
                         out,
                         err,
@@ -1777,11 +1777,11 @@ pub fn main() -> Result<()> {
                 core::repository::blame::blame_file(
                     repo,
                     &file,
-                    gix::blame::Options {
+                    legix::blame::Options {
                         diff_algorithm,
-                        ranges: gix::blame::BlameRanges::from_one_based_inclusive_ranges(ranges)?,
+                        ranges: legix::blame::BlameRanges::from_one_based_inclusive_ranges(ranges)?,
                         since,
-                        rewrites: Some(gix::diff::Rewrites::default()),
+                        rewrites: Some(legix::diff::Rewrites::default()),
                         debug_track_path: false,
                     },
                     out,

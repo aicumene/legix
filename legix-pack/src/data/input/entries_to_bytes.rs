@@ -1,0 +1,161 @@
+use std::iter::Peekable;
+
+use legix_error::{ExnResult, message};
+
+use crate::data::input;
+
+/// An implementation of [`Iterator`] to write [encoded entries][input::Entry] to an inner implementation each time
+/// `next()` is called.
+///
+/// It is able to deal with an unknown amount of objects as it will rewrite the pack header once the entries iterator
+/// is depleted and compute the hash in one go by re-reading the whole file.
+pub struct EntriesToBytesIter<I: Iterator, W> {
+    /// An iterator for input [`input::Entry`] instances
+    pub input: Peekable<I>,
+    /// A way of writing encoded bytes.
+    output: W,
+    /// Our trailing hash when done writing all input entries
+    trailer: Option<legix_hash::ObjectId>,
+    /// The amount of objects in the iteration and the version of the packfile to be written.
+    /// Will be `None` to signal the header was written already.
+    data_version: crate::data::Version,
+    /// The amount of entries seen so far
+    num_entries: u32,
+    /// If we are done, no additional writes will occur
+    is_done: bool,
+    /// The kind of hash to use for the digest
+    object_hash: legix_hash::Kind,
+}
+
+impl<I, W> EntriesToBytesIter<I, W>
+where
+    I: Iterator<Item = ExnResult<input::Entry>>,
+    W: std::io::Read + std::io::Write + std::io::Seek,
+{
+    /// Create a new instance reading [entries][input::Entry] from an `input` iterator and write pack data bytes to
+    /// `output` writer, resembling a pack of `version`. The amount of entries will be dynamically determined and
+    /// the pack is completed once the last entry was written.
+    /// `object_hash` is the kind of hash to use for the pack checksum and maybe other places, depending on the version.
+    pub fn new(input: I, output: W, version: crate::data::Version, object_hash: legix_hash::Kind) -> Self {
+        EntriesToBytesIter {
+            input: input.peekable(),
+            output,
+            object_hash,
+            num_entries: 0,
+            trailer: None,
+            data_version: version,
+            is_done: false,
+        }
+    }
+
+    /// Returns the trailing hash over all ~ entries once done.
+    /// It's `None` if we are not yet done writing.
+    pub fn digest(&self) -> Option<legix_hash::ObjectId> {
+        self.trailer
+    }
+
+    fn next_inner(&mut self, entry: input::Entry) -> ExnResult<input::Entry> {
+        if self.num_entries == 0 {
+            let header_bytes = crate::data::header::encode(self.data_version, 0);
+            self.output
+                .write_all(&header_bytes[..])
+                .map_err(legix_hash::io::from_std_io)?;
+        }
+        self.num_entries += 1;
+        entry
+            .header
+            .write_to(entry.decompressed_size, &mut self.output)
+            .map_err(legix_hash::io::from_std_io)?;
+        self.output
+            .write_all(
+                entry
+                    .compressed
+                    .as_deref()
+                    .expect("caller must configure generator to keep compressed bytes"),
+            )
+            .map_err(legix_hash::io::from_std_io)?;
+        Ok(entry)
+    }
+
+    fn write_header_and_digest(&mut self, last_entry: Option<&mut input::Entry>) -> ExnResult {
+        let header_bytes = crate::data::header::encode(self.data_version, self.num_entries);
+        let num_bytes_written = if last_entry.is_some() {
+            self.output.stream_position().map_err(legix_hash::io::from_std_io)?
+        } else {
+            header_bytes.len() as u64
+        };
+        self.output.rewind().map_err(legix_hash::io::from_std_io)?;
+        self.output
+            .write_all(&header_bytes[..])
+            .map_err(legix_hash::io::from_std_io)?;
+        self.output.flush().map_err(legix_hash::io::from_std_io)?;
+
+        self.output.rewind().map_err(legix_hash::io::from_std_io)?;
+        let interrupt_never = std::sync::atomic::AtomicBool::new(false);
+        let digest = legix_hash::bytes(
+            &mut self.output,
+            num_bytes_written,
+            self.object_hash,
+            &mut legix_features::progress::Discard,
+            &interrupt_never,
+        )?;
+        self.output
+            .write_all(digest.as_slice())
+            .map_err(legix_hash::io::from_std_io)?;
+        self.output.flush().map_err(legix_hash::io::from_std_io)?;
+
+        self.is_done = true;
+        if let Some(last_entry) = last_entry {
+            last_entry.trailer = Some(digest);
+        }
+        self.trailer = Some(digest);
+        Ok(())
+    }
+}
+
+impl<I, W> Iterator for EntriesToBytesIter<I, W>
+where
+    I: Iterator<Item = ExnResult<input::Entry>>,
+    W: std::io::Read + std::io::Write + std::io::Seek,
+{
+    /// The amount of bytes written to `out` if `Ok` or the error `E` received from the input.
+    type Item = ExnResult<input::Entry>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_done {
+            return None;
+        }
+
+        match self.input.next() {
+            Some(res) => Some(match res {
+                Ok(entry) => self
+                    .next_inner(entry)
+                    .and_then(|mut entry| {
+                        if self.input.peek().is_none() {
+                            self.write_header_and_digest(Some(&mut entry)).map(|_| entry)
+                        } else {
+                            Ok(entry)
+                        }
+                    })
+                    .map_err(hash_io_error),
+                Err(err) => {
+                    self.is_done = true;
+                    Err(err)
+                }
+            }),
+            None => match self.write_header_and_digest(None) {
+                Ok(_) => None,
+                Err(err) => Some(Err(hash_io_error(err))),
+            },
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.input.size_hint()
+    }
+}
+
+fn hash_io_error(err: legix_error::Exn) -> legix_error::Exn {
+    err.raise(message("An IO operation failed while streaming an entry"))
+        .erased()
+}

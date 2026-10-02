@@ -19,6 +19,6 @@ fn umask() {
         .to_str()
         .expect("umask line is valid UTF-8")
         .to_owned();
-    let more_portable = format!("{:04o}", gix_testtools::umask());
+    let more_portable = format!("{:04o}", legix_testtools::umask());
     assert_eq!(more_portable, less_portable);
 }

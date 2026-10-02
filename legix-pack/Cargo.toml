@@ -1,0 +1,92 @@
+lints.workspace = true
+
+[package]
+name = "legix-pack"
+version = "0.75.0"
+repository = "https://github.com/aicumene/legix"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+license = "MIT OR Apache-2.0"
+description = "Implements git packs and related data structures"
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[[bench]]
+name = "pack_create"
+harness = false
+
+[features]
+default = ["generate", "streaming-input"]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## generate new packs from a set of objects.
+generate = ["dep:legix-traverse", "dep:legix-diff", "dep:parking_lot", "dep:legix-hashtable"]
+## Receive a pack as datastream and resolve it
+streaming-input = ["dep:parking_lot", "dep:legix-tempfile"]
+## Provide a fixed-size allocation-free LRU cache for packs. It's useful if caching is desired while keeping the memory footprint
+## for the LRU-cache itself low.
+pack-cache-lru-static = ["dep:uluru"]
+## Provide a hash-map based LRU cache whose eviction is based a memory cap calculated from object data.
+pack-cache-lru-dynamic = ["dep:clru"]
+## If set, select algorithms may additionally use a full-object cache which is queried before the pack itself.
+object-cache-dynamic = ["dep:clru", "dep:legix-hashtable"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "legix-object/serde", "legix-zlib/serde"]
+## Enable parallel algorithms.
+parallel = ["legix-features/parallel", "dep:crossbeam-deque"]
+## Make it possible to compile to the `wasm32-unknown-unknown` target.
+wasm = ["legix-diff?/wasm"]
+## Add test-utilities for tests and benchmarks.
+testing = []
+
+[dependencies]
+legix-features = { version = "^0.50.0", path = "../legix-features", features = ["crc32", "progress"] }
+legix-zlib = { version = "^0.2.0", path = "../legix-zlib" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-chunk = { version = "^0.9.0", path = "../legix-chunk" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-hashtable = { version = "^0.17.0", path = "../legix-hashtable", optional = true }
+
+# for streaming of packs (input, output)
+legix-traverse = { version = "^0.62.0", path = "../legix-traverse", optional = true }
+legix-diff = { version = "^0.68.0", path = "../legix-diff", default-features = false, optional = true }
+
+memmap2 = "0.9.11"
+smallvec = "1.15.1"
+parking_lot = { version = "0.12.4", default-features = false, optional = true }
+crossbeam-deque = { version = "0.8.6", optional = true }
+
+# for caching
+uluru = { version = "3.0.0", optional = true }
+clru = { version = "0.6.1", optional = true }
+
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+## If enabled, `cargo doc` will see feature documentation from this manifest.
+document-features = { version = "0.2.0", optional = true }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+legix-tempfile = { version = "^25.0.0", default-features = false, path = "../legix-tempfile", optional = true }
+
+[dev-dependencies]
+legix-pack = { path = ".", features = ["sha1", "sha256", "pack-cache-lru-dynamic", "pack-cache-lru-static", "object-cache-dynamic", "serde", "testing"] }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-odb = { path = "../legix-odb", features = ["sha1", "sha256"] }
+legix-object = { path = "../legix-object" }
+legix-traverse = { path = "../legix-traverse" }
+
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
+maplit = "1.0.2"
+criterion = "0.8.2"
+insta = "1.46.3"
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "sha256", "document-features", "pack-cache-lru-dynamic", "object-cache-dynamic", "serde"]

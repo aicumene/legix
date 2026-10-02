@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "gix-testtools"
+name = "legix-testtools"
 description = "Shared code for gitoxide crates to facilitate testing"
 version = "0.21.0"
 authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
@@ -22,37 +22,37 @@ default = ["worktree-exclusions", "repo-snapshot"]
 ## Use the current repository's complete ignore rules to decide if generated fixture archives should be written.
 ## Without this feature, only the `.gitignore` next to the archive is consulted using a fallback matcher
 ## that supports literal patterns and `*`, but not the full `.gitignore` syntax.
-worktree-exclusions = ["dep:gix-config", "dep:gix-discover", "dep:gix-worktree"]
+worktree-exclusions = ["dep:legix-config", "dep:legix-discover", "dep:legix-worktree"]
 ## Capture repository snapshots using `gix-*` plumbing crates instead of invoking Git.
-## Without this feature, repository snapshots use the Git executable selected by `gix-path`.
+## Without this feature, repository snapshots use the Git executable selected by `legix-path`.
 repo-snapshot = [
-    "dep:gix-config",
-    "dep:gix-discover",
-    "dep:gix-index",
-    "dep:gix-object",
-    "dep:gix-odb",
-    "dep:gix-ref",
-    "dep:gix-shallow",
+    "dep:legix-config",
+    "dep:legix-discover",
+    "dep:legix-index",
+    "dep:legix-object",
+    "dep:legix-odb",
+    "dep:legix-ref",
+    "dep:legix-shallow",
 ]
 ## Enable support for SHA-1 fixture repositories and object IDs.
 sha1 = [
-    "gix-hash/sha1",
-    "gix-config?/sha1",
-    "gix-index?/sha1",
-    "gix-object?/sha1",
-    "gix-odb?/sha1",
-    "gix-ref?/sha1",
-    "gix-shallow?/sha1",
+    "legix-hash/sha1",
+    "legix-config?/sha1",
+    "legix-index?/sha1",
+    "legix-object?/sha1",
+    "legix-odb?/sha1",
+    "legix-ref?/sha1",
+    "legix-shallow?/sha1",
 ]
 ## Enable support for SHA-256 fixture repositories and object IDs.
 sha256 = [
-    "gix-hash/sha256",
-    "gix-config?/sha256",
-    "gix-index?/sha256",
-    "gix-object?/sha256",
-    "gix-odb?/sha256",
-    "gix-ref?/sha256",
-    "gix-shallow?/sha256",
+    "legix-hash/sha256",
+    "legix-config?/sha256",
+    "legix-index?/sha256",
+    "legix-object?/sha256",
+    "legix-odb?/sha256",
+    "legix-ref?/sha256",
+    "legix-shallow?/sha256",
 ]
 ## Use instead of plain `tar` files, compress these to produce `tar.xz` files instead.
 ## This is useful if archives are uploaded into `git-lfs`, which doesn't have built-in compression
@@ -62,19 +62,19 @@ xz = ["dep:xz2"]
 sbom = ["dep:serde_json"]
 
 [dependencies]
-gix-error = { version = "^0.4.0", path = "../../gix-error" }
-gix-hash = { version = "^0.27.0", path = "../../gix-hash" }
-gix-lock = { version = "^25.0.0", path = "../../gix-lock" }
-gix-path = { version = "^0.13.0", path = "../../gix-path" }
-gix-config = { version = "^0.61.0", path = "../../gix-config", optional = true, default-features = false }
-gix-discover = { version = "^0.56.0", path = "../../gix-discover", optional = true }
-gix-index = { version = "^0.56.0", path = "../../gix-index", optional = true, default-features = false }
-gix-object = { version = "^0.65.0", path = "../../gix-object", optional = true, default-features = false }
-gix-odb = { version = "^0.85.0", path = "../../gix-odb", optional = true, default-features = false }
-gix-ref = { version = "^0.68.0", path = "../../gix-ref", optional = true, default-features = false }
-gix-shallow = { version = "^0.14.0", path = "../../gix-shallow", optional = true }
-gix-worktree = { version = "^0.57.0", path = "../../gix-worktree", optional = true, features = ["parallel"] }
-gix-tempfile = { version = "^25.0.0", path = "../../gix-tempfile", default-features = false, features = ["signals"] }
+legix-error = { version = "^0.4.0", path = "../../legix-error" }
+legix-hash = { version = "^0.27.0", path = "../../legix-hash" }
+legix-lock = { version = "^25.0.0", path = "../../legix-lock" }
+legix-path = { version = "^0.13.0", path = "../../legix-path" }
+legix-config = { version = "^0.61.0", path = "../../legix-config", optional = true, default-features = false }
+legix-discover = { version = "^0.56.0", path = "../../legix-discover", optional = true }
+legix-index = { version = "^0.56.0", path = "../../legix-index", optional = true, default-features = false }
+legix-object = { version = "^0.65.0", path = "../../legix-object", optional = true, default-features = false }
+legix-odb = { version = "^0.85.0", path = "../../legix-odb", optional = true, default-features = false }
+legix-ref = { version = "^0.68.0", path = "../../legix-ref", optional = true, default-features = false }
+legix-shallow = { version = "^0.14.0", path = "../../legix-shallow", optional = true }
+legix-worktree = { version = "^0.57.0", path = "../../legix-worktree", optional = true, features = ["parallel"] }
+legix-tempfile = { version = "^25.0.0", path = "../../legix-tempfile", default-features = false, features = ["signals"] }
 
 fastrand = "2.0.0"
 bstr = { version = "1.12.0", default-features = false }
@@ -92,7 +92,7 @@ serde_json = { version = "1.0.150", optional = true }
 document-features = { version = "0.2.1", optional = true }
 
 [dev-dependencies]
-gix-testtools = { path = ".", default-features = false, features = ["sha1", "sha256"] }
+legix-testtools = { path = ".", default-features = false, features = ["sha1", "sha256"] }
 insta = "1.46.3"
 
 [package.metadata.docs.rs]

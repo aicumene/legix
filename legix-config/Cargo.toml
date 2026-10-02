@@ -1,0 +1,68 @@
+lints.workspace = true
+
+[package]
+name = "legix-config"
+version = "0.61.0"
+repository = "https://github.com/aicumene/legix"
+description = "A git-config file parser and editor from the gitoxide project"
+license = "MIT OR Apache-2.0"
+authors = ["Edward Shen <code@eddie.sh>"]
+edition = "2024"
+keywords = ["git-config", "git", "config", "gitoxide"]
+categories = ["config", "parser-implementations"]
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
+rust-version = "1.88"
+
+[features]
+## Enable support for the SHA-1 hash by forwarding the feature to dependencies.
+sha1 = ["legix-ref/sha1"]
+## Enable support for the SHA-256 hash by forwarding the feature to dependencies.
+sha256 = ["legix-ref/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "bstr/serde", "legix-sec/serde", "legix-ref/serde", "legix-glob/serde", "legix-config-value/serde"]
+
+[dependencies]
+legix-features = { version = "^0.50.0", path = "../legix-features" }
+legix-config-value = { version = "^0.20.0", path = "../legix-config-value" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-sec = { version = "^0.15.0", path = "../legix-sec" }
+legix-ref = { version = "^0.68.0", path = "../legix-ref" }
+legix-glob = { version = "^0.28.0", path = "../legix-glob" }
+legix-utils = { version = "^0.4.0", path = "../legix-utils", features = ["bstr"] }
+
+unicode-bom = { version = "2.0.3" }
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+smallvec = "1.15.1"
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+criterion = "0.8.2"
+legix-config = { path = ".", features = ["sha1"] }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
+serial_test = { version = "3.4.0", default-features = false }
+bytesize = "2.3.1"
+cap = { version = "0.1.2", features = ["stats"] }
+insta = "1.46.3"
+
+[[bench]]
+name = "large_config_file"
+harness = false
+path = "./benches/large_config_file.rs"
+
+[[bench]]
+name = "lookup"
+harness = false
+path = "./benches/lookup.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+features = ["sha1", "document-features"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Public optional `serde` feature is retained for downstream feature compatibility.
+    "serde",
+]

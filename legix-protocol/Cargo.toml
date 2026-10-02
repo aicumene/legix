@@ -1,0 +1,119 @@
+lints.workspace = true
+
+[package]
+name = "legix-protocol"
+version = "0.66.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project for implementing git protocols"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*", "!/tests/**/*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[features]
+
+#! ### Client I/O modes
+#! The _client_ portion of the protocol uses `legix-transport` to communicate to a server. For it to be available, one of the following features must
+#! be selected.
+#!
+#! Both client features can be enabled together. Existing mode-specific `_blocking` and `_async` methods are then both available,
+#! while APIs shared by both modes select the blocking implementation.
+
+## If set, blocking command implementations are available and will use the blocking version of the `legix-transport` crate.
+blocking-client = [
+    "legix-transport/blocking-client",
+    "handshake",
+    "fetch"
+]
+## As above, but provides async implementations instead.
+# no `dep:` for futures-lite (https://github.com/rust-secure-code/cargo-auditable/issues/124)
+async-client = [
+    "legix-transport/async-client",
+    "dep:async-trait",
+    "dep:futures-io",
+    "futures-lite",
+    "handshake",
+    "fetch"
+]
+
+## Add implementations for performing a `handshake` along with the dependencies needed for it.
+handshake = ["dep:legix-credentials"]
+
+## Add implementations for performing a `fetch` (for packs) along with the dependencies needed for it.
+fetch = [
+    "dep:legix-negotiate",
+    "dep:legix-object",
+    "dep:legix-revwalk",
+    "dep:legix-lock",
+    "dep:legix-refspec",
+    "dep:legix-trace",
+]
+
+#! ### Other
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "bstr/serde", "legix-transport/serde", "legix-hash/serde", "legix-shallow/serde"]
+
+[[test]]
+name = "blocking"
+path = "tests/blocking-protocol.rs"
+required-features = ["blocking-client"]
+
+[[test]]
+name = "async"
+path = "tests/async-protocol.rs"
+required-features = ["async-client"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-features = { version = "^0.50.0", path = "../legix-features", features = [
+    "progress",
+] }
+legix-transport = { version = "^0.60.0", path = "../legix-transport" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-shallow = { version = "^0.14.0", path = "../legix-shallow" }
+legix-date = { version = "^0.17.0", path = "../legix-date" }
+legix-utils = { version = "^0.4.0", path = "../legix-utils" }
+legix-ref = { version = "^0.68.0", path = "../legix-ref" }
+legix-macros = { version = "^0.2.0", path = "../legix-macros" }
+
+legix-trace = { version = "^0.2.0", path = "../legix-trace", optional = true }
+legix-negotiate = { version = "^0.36.0", path = "../legix-negotiate", optional = true }
+legix-object = { version = "^0.65.0", path = "../legix-object", optional = true }
+legix-revwalk = { version = "^0.36.0", path = "../legix-revwalk", optional = true }
+legix-credentials = { version = "^0.41.0", path = "../legix-credentials", optional = true }
+legix-refspec = { version = "^0.46.0", path = "../legix-refspec", optional = true }
+legix-lock = { version = "^25.0.0", path = "../legix-lock", optional = true }
+
+nonempty = "0.12.0"
+serde = { version = "1.0.114", optional = true, default-features = false, features = [
+    "derive",
+] }
+bstr = { version = "1.12.0", default-features = false, features = [
+    "std",
+    "unicode",
+] }
+
+# for async-client
+async-trait = { version = "0.1.51", optional = true }
+futures-io = { version = "0.3.32", optional = true }
+futures-lite = { version = "2.1.0", optional = true }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1"] }
+insta = "1.46.3"
+async-std = { version = "1.9.0", features = ["attributes"] }
+legix-packetline = { path = "../legix-packetline", version = "^0.23.0" }
+legix-protocol = { path = "../legix-protocol", features = ["sha1"] }
+
+[package.metadata.docs.rs]
+features = ["sha1", "blocking-client", "document-features", "serde"]

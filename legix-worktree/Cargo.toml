@@ -1,0 +1,62 @@
+lints.workspace = true
+
+[package]
+name = "legix-worktree"
+version = "0.57.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project for shared worktree related types and utilities."
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+include = ["/src/**/*", "/LICENSE-*"]
+rust-version = "1.88"
+
+[lib]
+doctest = false
+
+[features]
+default = ["attributes"]
+## Enable support for the SHA-1 hash by enabling the respective feature in the `legix-hash` crate.
+sha1 = ["legix-hash/sha1"]
+## Enable support for the SHA-256 hash by enabling the respective feature in the `legix-hash` crate.
+sha256 = ["legix-hash/sha256"]
+## Instantiate stacks that can access `.gitattributes` information.
+attributes = ["dep:legix-attributes", "dep:legix-validate"]
+## Data structures implement `serde::Serialize` and `serde::Deserialize`.
+serde = ["dep:serde", "bstr/serde", "legix-index/serde", "legix-hash/serde", "legix-object/serde", "legix-attributes?/serde", "legix-ignore/serde"]
+## Enable thread-safety.
+parallel = ["legix-features/parallel", "legix-attributes?/parallel"]
+
+[dependencies]
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+legix-index = { version = "^0.56.0", path = "../legix-index" }
+legix-fs = { version = "^0.23.0", path = "../legix-fs" }
+legix-hash = { version = "^0.27.0", path = "../legix-hash" }
+legix-object = { version = "^0.65.0", path = "../legix-object" }
+legix-glob = { version = "^0.28.0", path = "../legix-glob" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-attributes = { version = "^0.36.0", path = "../legix-attributes", optional = true }
+legix-validate = { version = "^0.12.0", path = "../legix-validate", optional = true }
+legix-ignore = { version = "^0.23.0", path = "../legix-ignore" }
+legix-features = { version = "^0.50.0", path = "../legix-features", optional = true }
+
+serde = { version = "1.0.114", optional = true, default-features = false, features = ["derive"] }
+bstr = { version = "1.12.0", default-features = false }
+
+document-features = { version = "0.2.0", optional = true }
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-hash = { path = "../legix-hash", features = ["sha1", "sha256"] }
+legix-testtools = { path = "../tests/tools", default-features = false, features = ["sha1", "sha256"] }
+legix-odb = { path = "../legix-odb", features = ["sha1", "sha256"] }
+legix-discover = { path = "../legix-discover" }
+
+[package.metadata.docs.rs]
+features = ["sha1", "document-features", "serde"]
+
+[package.metadata.cargo-machete]
+ignored = [
+    # Forwarding-only dependency for test feature parity after dissolving gix-worktree-tests.
+    "legix-features",
+]

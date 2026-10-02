@@ -1,0 +1,34 @@
+lints.workspace = true
+
+[package]
+name = "legix-pathspec"
+version = "0.21.0"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+description = "A crate of legix, a fork of the gitoxide project dealing magical pathspecs"
+authors = ["Sebastian Thiel <sebastian.thiel@icloud.com>"]
+edition = "2024"
+rust-version = "1.88"
+include = ["/src/**/*", "/LICENSE-*", "/README.md"]
+
+[lib]
+doctest = true
+
+[features]
+## Enable thread-safety.
+parallel = ["legix-attributes/parallel"]
+
+[dependencies]
+legix-glob = { version = "^0.28.0", path = "../legix-glob" }
+legix-path = { version = "^0.13.0", path = "../legix-path" }
+legix-attributes = { version = "^0.36.0", path = "../legix-attributes" }
+legix-config-value = { version = "^0.20.0", path = "../legix-config-value" }
+legix-error = { version = "^0.4.0", path = "../legix-error" }
+
+bstr = { version = "1.12.0", default-features = false, features = ["std"] }
+bitflags = "2"
+
+[dev-dependencies]
+insta = "1.46.3"
+legix-testtools = { path = "../tests/tools", features = ["sha1"] }
+serial_test = "3.4.0"

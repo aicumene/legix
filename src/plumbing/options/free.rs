@@ -51,8 +51,8 @@ pub mod index {
     #[derive(Debug, clap::Parser)]
     pub struct Platform {
         /// The object format to assume when reading files that don't inherently know about it, or when writing files.
-        #[clap(long, default_value_t = gix::hash::Kind::default(), value_parser = crate::shared::AsHashKind)]
-        pub object_hash: gix::hash::Kind,
+        #[clap(long, default_value_t = legix::hash::Kind::default(), value_parser = crate::shared::AsHashKind)]
+        pub object_hash: legix::hash::Kind,
 
         /// The path to the index file.
         #[clap(short = 'i', long, default_value = ".git/index")]
@@ -113,7 +113,7 @@ pub mod index {
 pub mod remote {
     use std::path::PathBuf;
 
-    use gitoxide_core as core;
+    use legix_core as core;
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
@@ -143,7 +143,7 @@ pub mod remote {
 pub mod pack {
     use std::{ffi::OsString, path::PathBuf};
 
-    use gitoxide_core as core;
+    use legix_core as core;
 
     #[derive(Debug, clap::Subcommand)]
     pub enum Subcommands {
@@ -219,7 +219,7 @@ pub mod pack {
             /// Otherwise the expansion mode is 'tree-traversal' by default.
             tips: Vec<OsString>,
         },
-        /// Use the gix-protocol to receive a pack, emulating a clone.
+        /// Use the legix-protocol to receive a pack, emulating a clone.
         #[cfg(any(feature = "gitoxide-core-async-client", feature = "gitoxide-core-blocking-client"))]
         Receive {
             /// The protocol version to use. Valid values are 1 and 2
@@ -365,7 +365,7 @@ pub mod pack {
     pub mod index {
         use std::path::PathBuf;
 
-        use gitoxide_core as core;
+        use legix_core as core;
 
         use super::AsIterationMode;
 
@@ -415,17 +415,17 @@ pub mod pack {
         pub struct AsObjectExpansion;
 
         impl TypedValueParser for AsObjectExpansion {
-            type Value = gitoxide_core::pack::create::ObjectExpansion;
+            type Value = legix_core::pack::create::ObjectExpansion;
 
             fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
                 NonEmptyStringValueParser::new()
-                    .try_map(|arg| gitoxide_core::pack::create::ObjectExpansion::from_str(&arg))
+                    .try_map(|arg| legix_core::pack::create::ObjectExpansion::from_str(&arg))
                     .parse_ref(cmd, arg, value)
             }
 
             fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
                 Some(Box::new(
-                    gitoxide_core::pack::create::ObjectExpansion::variants()
+                    legix_core::pack::create::ObjectExpansion::variants()
                         .iter()
                         .map(PossibleValue::new),
                 ))
@@ -436,17 +436,17 @@ pub mod pack {
         pub struct AsSafetyCheck;
 
         impl TypedValueParser for AsSafetyCheck {
-            type Value = gitoxide_core::pack::explode::SafetyCheck;
+            type Value = legix_core::pack::explode::SafetyCheck;
 
             fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
                 NonEmptyStringValueParser::new()
-                    .try_map(|arg| gitoxide_core::pack::explode::SafetyCheck::from_str(&arg))
+                    .try_map(|arg| legix_core::pack::explode::SafetyCheck::from_str(&arg))
                     .parse_ref(cmd, arg, value)
             }
 
             fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
                 Some(Box::new(
-                    gitoxide_core::pack::explode::SafetyCheck::variants()
+                    legix_core::pack::explode::SafetyCheck::variants()
                         .iter()
                         .map(PossibleValue::new),
                 ))
@@ -457,17 +457,17 @@ pub mod pack {
         pub struct AsAlgorithm;
 
         impl TypedValueParser for AsAlgorithm {
-            type Value = gitoxide_core::pack::verify::Algorithm;
+            type Value = legix_core::pack::verify::Algorithm;
 
             fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
                 NonEmptyStringValueParser::new()
-                    .try_map(|arg| gitoxide_core::pack::verify::Algorithm::from_str(&arg))
+                    .try_map(|arg| legix_core::pack::verify::Algorithm::from_str(&arg))
                     .parse_ref(cmd, arg, value)
             }
 
             fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
                 Some(Box::new(
-                    gitoxide_core::pack::verify::Algorithm::variants()
+                    legix_core::pack::verify::Algorithm::variants()
                         .iter()
                         .map(PossibleValue::new),
                 ))
@@ -478,17 +478,17 @@ pub mod pack {
         pub struct AsIterationMode;
 
         impl TypedValueParser for AsIterationMode {
-            type Value = gitoxide_core::pack::index::IterationMode;
+            type Value = legix_core::pack::index::IterationMode;
 
             fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
                 NonEmptyStringValueParser::new()
-                    .try_map(|arg| gitoxide_core::pack::index::IterationMode::from_str(&arg))
+                    .try_map(|arg| legix_core::pack::index::IterationMode::from_str(&arg))
                     .parse_ref(cmd, arg, value)
             }
 
             fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
                 Some(Box::new(
-                    gitoxide_core::pack::index::IterationMode::variants()
+                    legix_core::pack::index::IterationMode::variants()
                         .iter()
                         .map(PossibleValue::new),
                 ))

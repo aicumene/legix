@@ -1,0 +1,74 @@
+use bstr::ByteSlice;
+use legix_error::ExnResult;
+
+use crate::{File, KeyRef, file, file::init};
+
+/// Instantiation from environment variables
+impl File {
+    /// Generates a config from `GIT_CONFIG_*` environment variables or returns `Ok(None)` if no configuration was found.
+    /// See [`git-config`'s documentation] for more information on the environment variables in question.
+    ///
+    /// With `options` configured, it's possible to resolve `include.path` or `includeIf.<condition>.path` directives as well.
+    /// Integer parsing failures for `GIT_CONFIG_COUNT` and key parsing failures for `GIT_CONFIG_KEY_*` include their
+    /// bytes as `input`
+    /// [metadata](legix_error::Exn::metadata()).
+    ///
+    /// [`git-config`'s documentation]: https://git-scm.com/docs/git-config#Documentation/git-config.txt-GITCONFIGCOUNT
+    pub fn from_env(options: init::Options<'_>) -> ExnResult<Option<File>> {
+        use legix_error::{ErrorExt, OptionExt, ResultExt, message, not_found, validation};
+        use std::env;
+        let count: usize = match env::var("GIT_CONFIG_COUNT") {
+            Ok(v) => v.parse::<usize>().or_raise_erased(|| {
+                validation("GIT_CONFIG_COUNT was not a positive integer").with("input", v.into_bytes())
+            })?,
+            Err(_) => return Ok(None),
+        };
+
+        if count == 0 {
+            return Ok(None);
+        }
+
+        let meta = file::Metadata {
+            path: None,
+            source: crate::Source::Env,
+            level: 0,
+            trust: legix_sec::Trust::Full,
+        };
+        let mut config = File::new(meta);
+        for i in 0..count {
+            let key = legix_path::os_string_into_bstring(
+                env::var_os(format!("GIT_CONFIG_KEY_{i}"))
+                    .ok_or_raise_erased(|| not_found(format!("GIT_CONFIG_KEY_{i} was not set")))?,
+            )
+            .or_raise_erased(|| validation(format!("Configuration key at index {i} contained illformed UTF-8")))?;
+            let value = env::var_os(format!("GIT_CONFIG_VALUE_{i}"))
+                .ok_or_raise_erased(|| not_found(format!("GIT_CONFIG_VALUE_{i} was not set")))?;
+            let key = KeyRef::parse_unvalidated(key.as_ref()).ok_or_else(|| {
+                validation(format!("GIT_CONFIG_KEY_{i} was set to an invalid value"))
+                    .with("input", key.as_bstr())
+                    .raise_erased()
+            })?;
+
+            config
+                .section_mut_or_create_new_inner(key.section_name, key.subsection_name)
+                .or_erased()?
+                .push(
+                    key.value_name,
+                    Some(
+                        legix_path::os_str_into_bstr(&value)
+                            .or_raise_erased(|| {
+                                validation(format!("Configuration value at index {i} contained illformed UTF-8"))
+                            })?
+                            .as_bytes()
+                            .into(),
+                    ),
+                )
+                .or_erased()?;
+        }
+
+        let mut buf = Vec::new();
+        init::includes::resolve(&mut config, &mut buf, options)
+            .or_raise_erased(|| message("Could not resolve includes in environment configuration"))?;
+        Ok(Some(config))
+    }
+}

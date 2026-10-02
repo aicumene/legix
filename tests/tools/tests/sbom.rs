@@ -2,12 +2,12 @@
 
 use std::{collections::BTreeSet, fs, path::Path, process::Command};
 
-use gix_testtools::{Result, tempfile::TempDir};
+use legix_testtools::{Result, tempfile::TempDir};
 use serde_json::Value;
 
 fn isolated(command: &mut Command, root: &Path) {
     let root = root.canonicalize().expect("fixture directory already exists");
-    gix_testtools::configure_git_environment(command, &root)
+    legix_testtools::configure_git_environment(command, &root)
         .current_dir(&root)
         .env("CARGO_HOME", root.join("cargo-home"))
         .env("CARGO_TARGET_DIR", root.join("target"))
@@ -26,7 +26,7 @@ fn jtt_command(root: &Path) -> Command {
 }
 
 fn fixture() -> Result<TempDir> {
-    let root = gix_testtools::tempfile::Builder::new()
+    let root = legix_testtools::tempfile::Builder::new()
         .prefix("sbom with spaces ")
         .tempdir()?;
     // `other` enables OpenSSL on the same transport used by `app`. A package
@@ -138,7 +138,7 @@ fn help_and_invalid_selection() -> Result {
         assert!(!output.status.success(), "invalid selection must fail: {args:?}");
         diagnostics.push((
             args,
-            gix_testtools::redact_debug_snapshot(&format_args!("{}", String::from_utf8_lossy(&output.stderr)), &[]),
+            legix_testtools::redact_debug_snapshot(&format_args!("{}", String::from_utf8_lossy(&output.stderr)), &[]),
         ));
     }
     insta::assert_debug_snapshot!(diagnostics, "invalid SBOM selections identify the rejected package, feature, or argument", @r#"

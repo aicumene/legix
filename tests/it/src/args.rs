@@ -4,7 +4,7 @@ use clap::{
     Arg, Command, Error,
     builder::{OsStringValueParser, TypedValueParser},
 };
-use gix::bstr::BString;
+use legix::bstr::BString;
 
 #[derive(Debug, clap::Parser)]
 #[clap(name = "it", about = "internal tools to help create test cases")]
@@ -90,7 +90,7 @@ pub enum Subcommands {
         ///
         /// None will copy everything.
         #[clap(value_parser = AsPathSpec)]
-        patterns: Vec<gix::pathspec::Pattern>,
+        patterns: Vec<legix::pathspec::Pattern>,
     },
     /// Serialize a git repository as linear history while degenerating content into a shell script that reproduces it.
     #[clap(visible_alias = "gts")]
@@ -121,7 +121,7 @@ pub enum Subcommands {
         ///
         /// None will copy everything.
         #[clap(value_parser = AsPathSpec)]
-        patterns: Vec<gix::pathspec::Pattern>,
+        patterns: Vec<legix::pathspec::Pattern>,
     },
     /// Take a slider file generated with the help of [diff-slider-tools] and turn it into a series
     /// of baseline diffs to be used in [slider-rs].
@@ -129,8 +129,8 @@ pub enum Subcommands {
     /// See [make-diff-for-sliders-repo] for details.
     ///
     /// [diff-slider-tools]: https://github.com/mhagger/diff-slider-tools
-    /// [slider-rs]: gix-diff/tests/diff/blob/slider.rs
-    /// [make-diff-for-sliders-repo]: gix-diff/tests/fixtures/make_diff_for_sliders_repo.sh
+    /// [slider-rs]: legix-diff/tests/diff/blob/slider.rs
+    /// [make-diff-for-sliders-repo]: legix-diff/tests/fixtures/make_diff_for_sliders_repo.sh
     CreateDiffCases {
         /// Don't really copy anything.
         #[clap(long, short = 'n')]
@@ -184,15 +184,15 @@ pub enum Subcommands {
 pub struct AsPathSpec;
 
 impl TypedValueParser for AsPathSpec {
-    type Value = gix::pathspec::Pattern;
+    type Value = legix::pathspec::Pattern;
 
     fn parse_ref(&self, cmd: &Command, arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
         let pathspec_defaults =
-            gix::pathspec::Defaults::from_environment(&mut |n| std::env::var_os(n)).unwrap_or_default();
+            legix::pathspec::Defaults::from_environment(&mut |n| std::env::var_os(n)).unwrap_or_default();
         OsStringValueParser::new()
             .try_map(move |arg| {
                 let arg: &std::path::Path = arg.as_os_str().as_ref();
-                gix::pathspec::parse(gix::path::into_bstr(arg).as_ref(), pathspec_defaults)
+                legix::pathspec::parse(legix::path::into_bstr(arg).as_ref(), pathspec_defaults)
             })
             .parse_ref(cmd, arg, value)
     }
