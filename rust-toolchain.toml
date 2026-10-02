@@ -1,0 +1,6 @@
+[toolchain]
+# Stable Rust when gitoxide v0.59.0 was released (25 Sep 2026). The workspace (CLI, tools, tests) needs a
+# recent stable; the legix library itself keeps MSRV 1.88. Newer Rust changes some standard error texts
+# that snapshots record (e.g. integer conversion errors in 1.99), so move this with upstream.
+channel = "1.98.0"
+profile = "minimal"

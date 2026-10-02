@@ -1,10 +1,11 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Please feel free to [draft a GitHub advisory](https://github.com/GitoxideLabs/gitoxide/security/advisories/new), and I will work with you to disclose and or resolve the issue
-responsibly.
+Please report it privately by [drafting a GitHub security advisory](https://github.com/aicumene/legix/security/advisories/new)
+for leGix. Do not open a public issue.
 
-If this doesn't seem like the right approach or there are questions, please feel free to reach out to the email used in Sebastian Thiel's commits.
-
-Thank you.
+leGix is a fork of gitoxide. If the problem is in code that leGix shares with gitoxide, we will
+coordinate with gitoxide's maintainers through their own process
+([advisories for gitoxide](https://github.com/GitoxideLabs/gitoxide/security/advisories/new)), and you are welcome to report it
+to them directly as well.
