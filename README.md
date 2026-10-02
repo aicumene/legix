@@ -72,7 +72,7 @@ Applications build on leGix for years, so its API is held to a contract:
 - **Security:** report privately through [GitHub security advisories](https://github.com/aicumene/legix/security/advisories/new);
   see [SECURITY.md](SECURITY.md).
 - **Commercial support** is available from [AiCumene](https://aicumene.com): integration into your product, long-term
-  maintenance with security backports, and priority fixes.
+  maintenance with security backports, and priority fixes. Write to [info@aicumene.com](mailto:info@aicumene.com).
 
 ## Built on gitoxide
 
