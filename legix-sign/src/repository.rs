@@ -74,7 +74,9 @@ impl RepositoryExt for Repository {
         let id = self.write_object(&commit).map_err(repository_error)?.detach();
 
         let expected = match commit.parents.first() {
-            Some(previous) if reference.as_bstr() == "HEAD" => PreviousValue::MustExistAndMatch(Target::Object(*previous)),
+            Some(previous) if reference.as_bstr() == "HEAD" => {
+                PreviousValue::MustExistAndMatch(Target::Object(*previous))
+            }
             Some(previous) => PreviousValue::ExistingMustMatch(Target::Object(*previous)),
             None => PreviousValue::MustNotExist,
         };

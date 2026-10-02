@@ -51,7 +51,10 @@ fn the_signature_follows_the_other_headers_as_git_writes_it() {
     assert_eq!(lines[2], "committer Ada <ada@example.com> 1759400000 +0000");
     assert_eq!(lines[3], "gpgsig -----BEGIN SSH SIGNATURE-----");
     assert_eq!(*lines.last().unwrap(), " -----END SSH SIGNATURE-----");
-    assert!(lines[4..].iter().all(|line| line.starts_with(' ')), "continuation lines");
+    assert!(
+        lines[4..].iter().all(|line| line.starts_with(' ')),
+        "continuation lines"
+    );
 }
 
 #[test]
@@ -121,9 +124,21 @@ fn a_key_is_trusted_only_within_its_validity_at_the_commit_time() {
         principals: "ada@example.com".into(),
     };
     assert_eq!(with(Some(COMMIT_TIME - 60), Some(COMMIT_TIME + 60)), allowed);
-    assert_eq!(with(Some(COMMIT_TIME), Some(COMMIT_TIME)), allowed, "both bounds are inclusive");
-    assert_eq!(with(Some(COMMIT_TIME + 1), None), outside, "rotated in after the commit");
-    assert_eq!(with(None, Some(COMMIT_TIME - 1)), outside, "rotated out before the commit");
+    assert_eq!(
+        with(Some(COMMIT_TIME), Some(COMMIT_TIME)),
+        allowed,
+        "both bounds are inclusive"
+    );
+    assert_eq!(
+        with(Some(COMMIT_TIME + 1), None),
+        outside,
+        "rotated in after the commit"
+    );
+    assert_eq!(
+        with(None, Some(COMMIT_TIME - 1)),
+        outside,
+        "rotated out before the commit"
+    );
 }
 
 #[test]
@@ -135,7 +150,9 @@ fn a_key_limited_to_other_namespaces_is_not_allowed_for_git() {
         namespaces: Some("file,email".into()),
         ..Entry::new("ada@example.com", key.public_key().clone())
     });
-    let outcome = legix_sign::verify_commit(&signed, ObjectFormat::Sha1, &signers).unwrap().unwrap();
+    let outcome = legix_sign::verify_commit(&signed, ObjectFormat::Sha1, &signers)
+        .unwrap()
+        .unwrap();
     assert_eq!(outcome.trust, Trust::UnknownKey);
 }
 
@@ -195,18 +212,31 @@ fn allowed_signers_read_options_patterns_and_comments() {
     assert!(signers.allows("bob@example.com", bob_key, Some(COMMIT_TIME)));
     assert!(!signers.allows("ex@example.com", bob_key, Some(COMMIT_TIME)), "negated");
     assert!(!signers.allows("bob@example.org", bob_key, Some(COMMIT_TIME)));
-    assert!(!signers.allows("bob@example.com", bob_key, Some(1_800_000_000)), "expired");
-    assert!(!signers.allows("bob@example.com", ada.public_key(), Some(COMMIT_TIME)), "another key");
+    assert!(
+        !signers.allows("bob@example.com", bob_key, Some(1_800_000_000)),
+        "expired"
+    );
+    assert!(
+        !signers.allows("bob@example.com", ada.public_key(), Some(COMMIT_TIME)),
+        "another key"
+    );
     assert_eq!(signers.principals_for(ada.public_key(), None), Some("ada@example.com"));
 
-    assert_eq!(AllowedSigners::parse(&signers.to_string()).unwrap(), signers, "written back as read");
+    assert_eq!(
+        AllowedSigners::parse(&signers.to_string()).unwrap(),
+        signers,
+        "written back as read"
+    );
 }
 
 #[test]
 fn allowed_signers_refuse_lines_they_cannot_read() {
     let key = key("ada").public_key().to_openssh().unwrap();
     for (text, line) in [
-        (format!("ada@example.com {key}\nada@example.com no-touch-required {key}"), 2),
+        (
+            format!("ada@example.com {key}\nada@example.com no-touch-required {key}"),
+            2,
+        ),
         (format!("ada@example.com valid-after=\"tomorrow\" {key}"), 1),
         (format!("\"ada@example.com {key}"), 1),
         ("ada@example.com ssh-ed25519 AAAAnotakey".to_string(), 1),

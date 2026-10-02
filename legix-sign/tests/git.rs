@@ -83,13 +83,24 @@ fn git_verifies(setup: &Setup, commit: &str) -> String {
 #[test]
 fn a_commit_signed_here_verifies_with_git() {
     let setup = setup();
-    assert_eq!(ok(git(&setup.repo, &["hash-object", "-t", "tree", "-w", "--stdin"], Some(b""))), EMPTY_TREE);
+    assert_eq!(
+        ok(git(
+            &setup.repo,
+            &["hash-object", "-t", "tree", "-w", "--stdin"],
+            Some(b"")
+        )),
+        EMPTY_TREE
+    );
     let commit = format!(
         "tree {EMPTY_TREE}\nauthor Ada <ada@example.com> 1759400000 +0000\n\
          committer Ada <ada@example.com> 1759400000 +0000\n\nSigned by legix\n"
     );
     let signed = legix_sign::sign_commit(commit.as_bytes(), ObjectFormat::Sha1, &setup.key).unwrap();
-    let id = ok(git(&setup.repo, &["hash-object", "-t", "commit", "-w", "--stdin"], Some(&signed)));
+    let id = ok(git(
+        &setup.repo,
+        &["hash-object", "-t", "commit", "-w", "--stdin"],
+        Some(&signed),
+    ));
     assert_eq!(
         git(&setup.repo, &["cat-file", "commit", &id], None).stdout,
         signed,
@@ -156,7 +167,13 @@ fn a_repository_commit_signed_here_verifies_with_git_and_here() {
     let repo = legix::open_opts(&setup.repo, legix::open::Options::isolated()).unwrap();
     let tree = repo.empty_tree().id;
     let first = repo
-        .commit_signed("HEAD", "First signed commit", tree, Vec::<legix::ObjectId>::new(), &setup.key)
+        .commit_signed(
+            "HEAD",
+            "First signed commit",
+            tree,
+            Vec::<legix::ObjectId>::new(),
+            &setup.key,
+        )
         .unwrap();
     let second = repo
         .commit_signed("HEAD", "Second signed commit", tree, [first], &setup.key)

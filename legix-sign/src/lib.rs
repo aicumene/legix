@@ -174,7 +174,9 @@ pub fn sign_commit(commit: &[u8], format: ObjectFormat, key: &impl SigningKey) -
         .map_err(|err| Error::Commit(err.to_string()))?;
     let signed = sign_object(commit, format, key)?;
     let mut out = Vec::new();
-    signed.write_to(&mut out).map_err(|err| Error::Commit(err.to_string()))?;
+    signed
+        .write_to(&mut out)
+        .map_err(|err| Error::Commit(err.to_string()))?;
     Ok(out)
 }
 
@@ -186,7 +188,9 @@ pub(crate) fn sign_object(
     let header = format.signature_header();
     commit.extra_headers.retain(|(name, _)| name != header);
     let mut payload = Vec::new();
-    commit.write_to(&mut payload).map_err(|err| Error::Commit(err.to_string()))?;
+    commit
+        .write_to(&mut payload)
+        .map_err(|err| Error::Commit(err.to_string()))?;
     let signature = sign(&payload, key)?;
     commit.extra_headers.push((header.into(), signature.into()));
     Ok(commit)
@@ -207,7 +211,12 @@ pub fn verify_commit(commit: &[u8], format: ObjectFormat, signers: &AllowedSigne
         .time()
         .map_err(|err| Error::Commit(err.to_string()))?
         .seconds;
-    Ok(Some(verify(signature.as_bytes(), &signed_data.to_bstring(), Some(time), signers)))
+    Ok(Some(verify(
+        signature.as_bytes(),
+        &signed_data.to_bstring(),
+        Some(time),
+        signers,
+    )))
 }
 
 /// Verify an armored SSH `signature` over `signed_data` in the `git` namespace, and look its key up in `signers`
