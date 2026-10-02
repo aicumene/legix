@@ -1,8 +1,8 @@
 # leGix
 
 **Distributed git for the enterprise.** leGix is version control for organizations that cannot hand their history
-to a server they have to trust. Every commit is signed by the device or person that made it. Content will be
-encrypted end to end, and devices will sync with each other through relays that cannot read what they carry.
+to a server they have to trust. Every commit is signed by the device or person that made it. Documents are encrypted,
+each under a key of its own, and devices will sync with each other through relays that cannot read what they carry.
 leGix is written in Rust and embeds in your product as a library. It needs no git installation and offers a
 stable API.
 
@@ -16,8 +16,9 @@ reads leGix history, and leGix reads theirs.
   invalidates history it signed while it was valid. Signatures verify with stock git.
 - **No server to trust.** Every device holds the full history. Sync will go through encrypted, signed,
   append-only bundles that any relay can forward, in the cloud or on premises.
-- **Encryption you can delete.** Documents will be stored per file, each under its own key. Destroying a key will
-  delete the document everywhere — retention and right-to-erasure without rewriting history.
+- **Encryption you can delete.** Documents are kept outside the history, each encrypted under a key of its own, and
+  the history holds a pointer. Destroying the key erases the document wherever its copies went — retention and
+  right-to-erasure without rewriting history.
 - **Built to embed.** A library rather than a program to install. It runs inside desktop, mobile and server
   applications, offline first, on macOS, Linux and Windows.
 - **Audit by construction.** Signed commits answer who changed what and when. A signed membership log, still to
@@ -33,10 +34,12 @@ infrastructure.
 |---|---|
 | git engine: repositories, objects, references, history, diff, merge, network | Available — `legix`, `legix-*` |
 | Signed history: sign and verify commits in git's SSH format, in process; allowed-signers trust with validity windows; SHA-1 and SHA-256 repositories | Available — [`legix-sign`](legix-sign) |
-| Encrypted documents: content-addressed storage, a key per file, deletion by key destruction | Planned |
+| Encrypted documents: a key per document, content-addressed objects any relay can check, erasure by destroying the key; formats specified byte by byte | Available — [`legix-crypt`](legix-crypt) |
 | Sync without a trusted server: encrypted, signed, append-only bundles through any relay | Planned |
 | Membership and key rotation: a signed log of who may read and write | Planned |
 | Device-to-device sync on the local network and through NAT | Planned |
+
+Signed history:
 
 ```rust
 use legix_sign::{AllowedSigners, repository::RepositoryExt};
@@ -51,12 +54,29 @@ signers.push("ada@example.com", key.public_key().clone());
 assert!(repo.verify_commit_signature(id, &signers)?.expect("signed").is_trusted());
 ```
 
+Encrypted documents:
+
+```rust
+use legix_crypt::{DirKeyStore, Documents, ObjectStore, StoreKey};
+
+let store_key = StoreKey::generate()?; // kept in the keychain or in hardware
+let documents = Documents::new(
+    ObjectStore::new(repo.git_dir().join("legix/objects")),
+    DirKeyStore::new(repo.git_dir().join("legix/keys"), store_key),
+);
+let pointer = documents.add(std::fs::File::open("contract.docx")?)?;
+let blob = repo.write_blob(pointer.to_string())?; // the history holds the pointer, never the document
+
+documents.erase(&pointer.oid)?; // destroys the key: the document cannot be read, the history is unchanged
+```
+
 ## Stable API
 
 Applications build on leGix for years, so its API is held to a contract:
 
-- **leGix's own crates** (`legix-sign` today; the encryption, sync and membership crates as they land) work on
-  git's stable formats and on their own types. They follow semantic versioning strictly.
+- **leGix's own crates** (`legix-sign` and `legix-crypt` today; the sync and membership crates as they land) work on
+  git's stable formats, on formats of their own that are specified and versioned, and on their own types. They follow
+  semantic versioning strictly.
 - **Deprecation before removal.** An API is deprecated for at least one minor release, with its replacement
   named, before it goes away in the next major version.
 - **Toolchain.** A minimum supported Rust version is raised only in minor releases and is stated in each crate.

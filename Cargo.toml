@@ -302,6 +302,7 @@ members = [
     "tests/it",
     "legix-shallow",
     "legix-sign",
+    "legix-crypt",
 ]
 
 [workspace.dependencies]
