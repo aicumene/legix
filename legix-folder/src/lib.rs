@@ -269,15 +269,19 @@ impl Folder {
         relay: impl Into<PathBuf>,
     ) -> Result<(Self, JoinRequest), Error> {
         let request = JoinRequest::new(&keys.signing, &keys.identity, principal)?;
+        let relay = relay.into();
+        if !relay.is_dir() {
+            return Err(Error::RelayMissing(relay));
+        }
         let settings = Settings {
             work: work.into(),
             group,
-            relay: Some(relay.into()),
+            relay: Some(relay),
             principal: principal.to_owned(),
         };
         let folder = Self::create(state.into(), settings, keys)?;
         folder.mirror.put_join(&request.device(), request.as_bytes())?;
-        if let Some(relay) = folder.relay() {
+        if let Some(relay) = folder.relay()? {
             relay.put_join(&request.device(), request.as_bytes())?;
         }
         Ok((folder, request))
@@ -323,8 +327,11 @@ impl Folder {
         &self.settings
     }
 
-    /// Sync through `relay` from now on, or through nothing.
+    /// Sync through `relay` from now on, or through nothing. The shared folder has to be there.
     pub fn set_relay(&mut self, relay: Option<PathBuf>) -> Result<(), Error> {
+        if let Some(relay) = relay.as_ref().filter(|relay| !relay.is_dir()) {
+            return Err(Error::RelayMissing(relay.clone()));
+        }
         self.settings.relay = relay;
         self.settings.write(&self.state.join("folder"))
     }
@@ -500,9 +507,9 @@ impl Folder {
     }
 
     /// Sync through the shared folder: bring what the other devices published — the group's log, their versions,
-    /// their documents — and publish this device's versions.
+    /// their documents — and publish this device's versions. The shared folder has to be there.
     pub fn sync(&self) -> Result<Synced, Error> {
-        let relay = self.relay().ok_or(Error::NoRelay)?;
+        let relay = self.relay()?.ok_or(Error::NoRelay)?;
         let group = self.settings.group;
         let mut synced = Synced::default();
         let into_mirror = legix_p2p::replicate(&relay, &self.mirror, &group, &self.keys.identity)?;
@@ -552,7 +559,8 @@ impl Folder {
         let members = self.members().ok();
         let mut requests = BTreeMap::new();
         let mut sources = self.mirror.joins()?;
-        if let Some(relay) = self.relay() {
+        // A shared folder that is not connected leaves the requests this device has seen.
+        if let Ok(Some(relay)) = self.relay() {
             sources.extend(relay.joins()?);
         }
         for bytes in sources {
@@ -585,7 +593,7 @@ impl Folder {
     /// Write a change of the membership into the log, after reading the relay's log: another admin may have written
     /// since.
     fn change(&self, write: impl FnOnce(&Members) -> Result<legix_members::Entry, Error>) -> Result<(), Error> {
-        let relay = self.relay();
+        let relay = self.relay()?;
         if let Some(relay) = &relay {
             legix_p2p::replicate(relay, &self.mirror, &self.settings.group, &self.keys.identity)?;
         }
@@ -597,8 +605,14 @@ impl Folder {
         Ok(())
     }
 
-    fn relay(&self) -> Option<DirRelay> {
-        self.settings.relay.as_ref().map(DirRelay::new)
+    /// The shared folder, if one is set. It has to be there: one that is not connected — a network share, a disk —
+    /// is never made anew where it was, where no other device would see what this one leaves.
+    fn relay(&self) -> Result<Option<DirRelay>, Error> {
+        match &self.settings.relay {
+            None => Ok(None),
+            Some(path) if path.is_dir() => Ok(Some(DirRelay::new(path))),
+            Some(path) => Err(Error::RelayMissing(path.clone())),
+        }
     }
 
     fn head(&self) -> Result<Option<ObjectId>, Error> {

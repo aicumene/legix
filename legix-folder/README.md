@@ -14,7 +14,7 @@ apart from the documents:
 - **Sync through a shared folder.** `sync` publishes this device's versions and brings the other devices', through a
   folder they share — a network share, a synced cloud folder. The shared folder holds only what is encrypted and
   signed: it can read none of it, and the devices check everything they take from it ([legix-sync](../legix-sync),
-  [legix-p2p](../legix-p2p)).
+  [legix-p2p](../legix-p2p)). One that is not connected is never made anew where it was: sync waits for it.
 - **Members.** The group decides who reads and who writes ([legix-members](../legix-members)). `found` starts a group
   with this device as its admin, and `join` asks to join one. An admin compares the request's fingerprint with the one
   the new device shows and `admit`s it as a writer or a reader; `remove` takes a device out, and the group moves to a

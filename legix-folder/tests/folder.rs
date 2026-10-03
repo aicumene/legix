@@ -161,6 +161,7 @@ fn a_folder_keeps_signed_versions_and_restores_them() {
 fn devices_share_their_versions_through_a_shared_folder() {
     let dir = tempfile::tempdir().unwrap();
     let shared = dir.path().join("Shared");
+    fs::create_dir_all(&shared).unwrap();
     let (ada, bo) = (Device::new(dir.path(), "ada"), Device::new(dir.path(), "bo"));
     ada.write("Heads of terms.docx", "Heads of terms\n");
     let mut adas = Folder::found(&ada.state, &ada.work, Keys::generate("ada").unwrap(), &ada.principal()).unwrap();
@@ -254,6 +255,7 @@ fn read_all_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
 /// Ada and Bo, Bo added as a writer, both synced once.
 fn two_devices(root: &Path) -> (Device, Folder, Device, Folder) {
     let shared = root.join("Shared");
+    fs::create_dir_all(&shared).unwrap();
     let (ada, bo) = (Device::new(root, "ada"), Device::new(root, "bo"));
     ada.write("Heads of terms.docx", "Heads of terms\n");
     let mut adas = Folder::found(&ada.state, &ada.work, Keys::generate("ada").unwrap(), &ada.principal()).unwrap();
@@ -468,4 +470,47 @@ fn keys_keep_as_one_secret() {
     ] {
         assert!(Keys::from_secret(&damaged).is_err(), "{damaged:?}");
     }
+}
+
+#[test]
+fn a_shared_folder_that_is_not_connected_is_never_made_anew() {
+    let dir = tempfile::tempdir().unwrap();
+    let shared = dir.path().join("Shared");
+    fs::create_dir_all(&shared).unwrap();
+    let ada = Device::new(dir.path(), "ada");
+    ada.write("Heads of terms.docx", "Heads of terms\n");
+    let mut folder = Folder::found(&ada.state, &ada.work, Keys::generate("ada").unwrap(), &ada.principal()).unwrap();
+    folder.set_relay(Some(shared.clone())).unwrap();
+    folder.save("Heads of terms").unwrap();
+    folder.sync().unwrap();
+
+    let away = dir.path().join("Shared, not connected");
+    fs::rename(&shared, &away).unwrap();
+    assert!(matches!(folder.sync(), Err(Error::RelayMissing(_))));
+    assert!(!shared.exists(), "nothing is left where the shared folder was");
+    assert!(
+        folder.requests().unwrap().is_empty(),
+        "the requests this device has seen"
+    );
+    let bo = Device::new(dir.path(), "bo");
+    assert!(matches!(
+        Folder::join(
+            &bo.state,
+            &bo.work,
+            Keys::generate("bo").unwrap(),
+            &bo.principal(),
+            folder.settings().group,
+            &shared
+        ),
+        Err(Error::RelayMissing(_))
+    ));
+    assert!(!bo.state.exists());
+
+    assert!(matches!(
+        folder.set_relay(Some(shared.clone())),
+        Err(Error::RelayMissing(_))
+    ));
+
+    fs::rename(&away, &shared).unwrap();
+    assert_eq!(folder.sync().unwrap().published, None, "nothing new since");
 }

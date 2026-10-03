@@ -37,6 +37,9 @@ pub enum Error {
     /// The folder has no relay to sync through.
     #[error("no folder to sync through is set")]
     NoRelay,
+    /// The shared folder to sync through is not there: not connected, or moved.
+    #[error("the shared folder {0} is not there: connect it, then sync again")]
+    RelayMissing(PathBuf),
 }
 
 /// An error of the engine, as text: its types change with every engine release.
