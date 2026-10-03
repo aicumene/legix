@@ -9,8 +9,8 @@ apart from the documents:
   under a key of its own ([legix-crypt](../legix-crypt)); the version holds only pointers to the encrypted documents,
   and the device signs it ([legix-sign](../legix-sign)). A document that did not change is not encrypted again.
 - **Restore.** `versions` lists the versions of every device of the group, newest first, each with whether a member
-  signed it. `restore` writes a version's documents into a new or empty folder, and never outside it, whatever the
-  version holds.
+  signed it. `restore` writes a version's documents into a new folder or one without documents, never over a file
+  and never outside the folder, whatever the version holds.
 - **Sync through a shared folder.** `sync` publishes this device's versions and brings the other devices', through a
   folder they share — a network share, a synced cloud folder. The shared folder holds only what is encrypted and
   signed: it can read none of it, and the devices check everything they take from it ([legix-sync](../legix-sync),

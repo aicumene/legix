@@ -30,12 +30,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use legix::{ObjectId, Repository, bstr::ByteSlice, objs::tree::EntryKind};
+use legix::{Repository, bstr::ByteSlice, objs::tree::EntryKind};
 use legix_crypt::{DirKeyStore, Documents, ObjectStore, Pointer, Status};
 use legix_sign::{AllowedSigners, Trust, repository::RepositoryExt, ssh_key::PrivateKey};
 use legix_sync::{DirRelay, Relay, Replica};
 
 pub use error::Error;
+pub use legix::ObjectId;
 pub use legix_crypt::StoreKey;
 pub use legix_members::{GroupId, Identity, JoinRequest, Member, Members, Role};
 pub use legix_sign::ssh_key;
@@ -48,6 +49,12 @@ use walk::Known;
 
 /// The branch this device's versions are on.
 const BRANCH: &str = "refs/heads/main";
+
+/// Whether a file named `name` is a document, which versions keep. Hidden files, Office's lock files and the system's
+/// own files are not.
+pub fn is_document(name: &str) -> bool {
+    !walk::skipped(name)
+}
 
 /// The first line of [`Keys::to_secret`].
 const KEYS: &str = "legix-folder-keys/1";
@@ -448,9 +455,14 @@ impl Folder {
         Ok(versions)
     }
 
-    /// Write the documents of `version` into `to`, a folder that is new or empty.
+    /// Write the documents of `version` into `to`, a folder that is new or holds no documents — a `.DS_Store` the
+    /// system left is no document. No file that is there is written over.
     pub fn restore(&self, version: &ObjectId, to: &Path) -> Result<Restored, Error> {
-        if to.exists() && fs::read_dir(to)?.next().is_some() {
+        if to.exists()
+            && fs::read_dir(to)?.any(|entry| {
+                !entry.is_ok_and(|entry| entry.file_name().to_str().is_some_and(|name| !is_document(name)))
+            })
+        {
             return Err(Error::NotEmpty(to.to_owned()));
         }
         let tree = self
@@ -471,7 +483,7 @@ impl Folder {
             if let Some(dir) = target.parent() {
                 fs::create_dir_all(dir)?;
             }
-            match self.documents.read(&pointer, fs::File::create(&target)?) {
+            match self.documents.read(&pointer, fs::File::create_new(&target)?) {
                 Ok(_) => restored.written.push(name),
                 Err(
                     legix_crypt::Error::Erased(_)
@@ -643,7 +655,8 @@ impl Folder {
     }
 
     /// The documents of a tree: their paths and their blobs. A name that could point outside a folder — `..`, `.`,
-    /// one with a separator, a drive — is left out.
+    /// one with a separator, a drive — is left out, and so is one that is no document — hidden, a lock file, the
+    /// system's own: a version holds what `save` takes, whoever wrote it.
     fn files(&self, tree: ObjectId) -> Result<Vec<(String, ObjectId)>, Error> {
         let mut files = Vec::new();
         let mut pending = vec![(String::new(), tree)];
@@ -657,7 +670,7 @@ impl Folder {
                 let mut components = Path::new(name).components();
                 let plain = matches!(components.next(), Some(Component::Normal(one)) if one == name)
                     && components.next().is_none();
-                if !plain || name.contains(['/', '\\', '\0']) {
+                if !plain || name.contains(['/', '\\', '\0']) || !is_document(name) {
                     continue;
                 }
                 let path = format!("{prefix}{name}");

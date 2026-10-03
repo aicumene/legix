@@ -117,8 +117,17 @@ fn a_folder_keeps_signed_versions_and_restores_them() {
     );
     assert!(
         matches!(folder.restore(&first.id, &restored), Err(Error::NotEmpty(_))),
-        "never over files"
+        "never over documents"
     );
+    let opened = dir.path().join("opened-in-finder");
+    fs::create_dir_all(&opened).unwrap();
+    fs::write(opened.join(".DS_Store"), "finder's own\n").unwrap();
+    assert_eq!(
+        folder.restore(&first.id, &opened).unwrap().written.len(),
+        2,
+        "what the system leaves in a folder is no document"
+    );
+    assert_eq!(fs::read_to_string(opened.join(".DS_Store")).unwrap(), "finder's own\n");
 
     // The history holds pointers, never a document.
     let objects = Command::new("git")
@@ -363,6 +372,66 @@ fn a_version_cannot_write_outside_the_folder_it_is_restored_into() {
     assert_eq!(restored.written, ["Heads of terms.docx"]);
     assert!(!dir.path().join("restored").join("escaped.docx").exists());
     assert!(!into.join("escaped.docx").exists());
+
+    // Nor anything that is no document: a version holds what `save` takes, whoever wrote it.
+    let hooks = repo
+        .write_object(Tree {
+            entries: vec![entry("post-checkout", tree::EntryKind::Blob, blob)],
+        })
+        .unwrap()
+        .detach();
+    let git = repo
+        .write_object(Tree {
+            entries: vec![entry("hooks", tree::EntryKind::Tree, hooks)],
+        })
+        .unwrap()
+        .detach();
+    let mut entries = vec![
+        entry(".DS_Store", tree::EntryKind::Blob, blob),
+        entry(".git", tree::EntryKind::Tree, git),
+        entry("Heads of terms.docx", tree::EntryKind::Blob, blob),
+    ];
+    entries.sort();
+    let tree = repo.write_object(Tree { entries }).unwrap().detach();
+    let hidden = repo
+        .commit_signed("refs/heads/main", "Hidden files", tree, [forged], &signing)
+        .unwrap();
+    let opened = dir.path().join("opened");
+    fs::create_dir_all(opened.join(".git")).unwrap();
+    fs::write(opened.join(".DS_Store"), "finder's own\n").unwrap();
+    let restored = folder.restore(&hidden, &opened).unwrap();
+    assert_eq!(restored.written, ["Heads of terms.docx"]);
+    assert_eq!(fs::read_to_string(opened.join(".DS_Store")).unwrap(), "finder's own\n");
+    assert!(!opened.join(".git").join("hooks").exists());
+
+    // And never over a file: of two names a case-insensitive disk takes for one, the first written stays.
+    ada.write("Invoice 17.pdf", "Invoice 17\n");
+    let second = folder.save("The invoice").unwrap().unwrap();
+    let second_tree = repo.find_commit(second.id).unwrap().tree_id().unwrap().detach();
+    let invoice = repo
+        .find_tree(second_tree)
+        .unwrap()
+        .iter()
+        .map(Result::unwrap)
+        .find(|entry| entry.filename() == "Invoice 17.pdf")
+        .unwrap()
+        .oid()
+        .to_owned();
+    let mut entries = vec![
+        entry("HEADS OF TERMS.docx", tree::EntryKind::Blob, invoice),
+        entry("Heads of terms.docx", tree::EntryKind::Blob, blob),
+    ];
+    entries.sort();
+    let tree = repo.write_object(Tree { entries }).unwrap().detach();
+    let twice = repo
+        .commit_signed("refs/heads/main", "One name twice", tree, [second.id], &signing)
+        .unwrap();
+    let into = dir.path().join("twice");
+    let _ = folder.restore(&twice, &into);
+    assert_eq!(
+        fs::read_to_string(into.join("HEADS OF TERMS.docx")).unwrap(),
+        "Invoice 17\n"
+    );
 }
 
 #[test]

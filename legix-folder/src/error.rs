@@ -28,8 +28,8 @@ pub enum Error {
     /// The folder's settings are not in the form this crate writes.
     #[error("not in the expected form: {0}")]
     Format(&'static str),
-    /// A version is restored only into a folder that is new or empty.
-    #[error("{0} is not empty: a version is restored into a new or empty folder")]
+    /// A version is restored only into a folder that is new or holds no documents.
+    #[error("{0} holds documents: a version is restored into a new folder, or one without documents")]
     NotEmpty(PathBuf),
     /// There is no version with this id.
     #[error("there is no such version")]
