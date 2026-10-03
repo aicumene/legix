@@ -1,5 +1,11 @@
 //! A device's part in device-to-device sync.
 
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, PoisonError, RwLock},
+    time::Duration,
+};
+
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::{Connection, RecvStream, SendStream},
@@ -16,6 +22,9 @@ use crate::{
 
 /// The ALPN of leGix's device-to-device sync.
 pub const ALPN: &[u8] = b"legix/sync/1";
+
+/// How long a device that answers waits for the request of a device that is not a member.
+const KNOCK_WAIT: Duration = Duration::from_secs(5);
 
 /// A device's part in device-to-device sync: its mirror of the group — a relay it alone writes to, which its
 /// `legix_sync::Replica` pushes to and pulls from — and the keys and certificate it syncs with.
@@ -75,18 +84,48 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
     }
 
     /// Sync with the device that connected through `connection`. A device that is not a member is turned away before
-    /// it is given anything.
+    /// it is given anything; when it knocks — gives its own request to join — the request is kept for the admins.
     pub async fn serve(&self, connection: Connection) -> Result<Synced, Error> {
-        let (mut send, mut recv) = connection.accept_bi().await.map_err(connection_error)?;
-        let certificate = self.hello(&connection, &mut recv).await?;
+        let (send, mut recv) = connection.accept_bi().await.map_err(connection_error)?;
+        let hello = read_hello(&mut recv).await?;
+        self.serve_hello(&connection, send, recv, &hello).await
+    }
+
+    /// Serve a connection whose hello has been read.
+    async fn serve_hello(
+        &self,
+        connection: &Connection,
+        mut send: SendStream,
+        mut recv: RecvStream,
+        hello: &[u8],
+    ) -> Result<Synced, Error> {
+        let certificate = self.check_hello(connection, hello)?;
         let mut intake = Intake::new(&self.mirror, self.group, &self.identity)?;
         if !certificate.is_member(intake.members()) {
+            if let Ok(Ok((wire::JOIN, payload))) = tokio::time::timeout(KNOCK_WAIT, wire::read(&mut recv)).await {
+                let (device, request) = split_device(&payload)?;
+                if device == certificate.device() {
+                    intake.join(device, request)?;
+                }
+                if intake.received.joins == 1 {
+                    wire::write(&mut send, wire::ASKED, &[]).await?;
+                    send.finish().map_err(connection_error)?;
+                    // The device that knocked closes the connection once it has read that its request was kept.
+                    let _ = tokio::time::timeout(KNOCK_WAIT, connection.closed()).await;
+                    return Ok(Synced {
+                        peer: Some(certificate.device()),
+                        received: intake.received,
+                        knocked: true,
+                        ..Synced::default()
+                    });
+                }
+            }
             connection.close(2u32.into(), b"not a member");
             return Err(Error::NotMember);
         }
         self.say_hello(&mut send).await?;
         let result = self
-            .exchange(&mut send, &mut recv, &certificate, &mut intake, true)
+            .exchange(&mut send, &mut recv, &certificate, &mut intake, true, true)
             .await;
         if result.is_ok() {
             // The device that dialed closes the connection once both sides have everything.
@@ -98,13 +137,41 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
     async fn dial(&self, connection: &Connection) -> Result<Synced, Error> {
         let (mut send, mut recv) = connection.open_bi().await.map_err(connection_error)?;
         self.say_hello(&mut send).await?;
-        let certificate = self.hello(connection, &mut recv).await?;
         let mut intake = Intake::new(&self.mirror, self.group, &self.identity)?;
+        // A device that its own log does not show as a member — one that asked to join — knocks: it gives its own
+        // request, which the peer keeps for the admins when it does not find the device in its log either.
+        if !self.certificate.is_member(intake.members())
+            && let Some(request) = self.own_request()?
+        {
+            wire::write(&mut send, wire::JOIN, &[self.certificate.device().as_bytes(), &request]).await?;
+        }
+        let hello = match wire::read(&mut recv).await? {
+            (wire::ASKED, _) => {
+                return Ok(Synced {
+                    peer: None,
+                    knocked: true,
+                    ..Synced::default()
+                });
+            }
+            (wire::HELLO, payload) => payload,
+            _ => return Err(Error::Protocol("expected a hello")),
+        };
+        let certificate = self.check_hello(connection, &hello)?;
         // A device whose log does not show the peer as a member — one that just joined — learns the log from the
         // peer, and gives nothing in this sync.
         let verified = certificate.is_member(intake.members());
-        self.exchange(&mut send, &mut recv, &certificate, &mut intake, verified)
+        self.exchange(&mut send, &mut recv, &certificate, &mut intake, verified, false)
             .await
+    }
+
+    /// This device's own request to join, as its mirror holds it.
+    fn own_request(&self) -> Result<Option<Vec<u8>>, Error> {
+        let device = self.certificate.device();
+        Ok(self
+            .mirror
+            .joins()?
+            .into_iter()
+            .find(|bytes| JoinRequest::parse(bytes).is_ok_and(|request| request.device() == device)))
     }
 
     async fn say_hello(&self, send: &mut SendStream) -> Result<(), Error> {
@@ -113,9 +180,8 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
 
     /// The peer's hello: its group, which must be this one, and its certificate, which must be for the endpoint that
     /// connected.
-    async fn hello(&self, connection: &Connection, recv: &mut RecvStream) -> Result<EndpointCert, Error> {
-        let (kind, payload) = wire::read(recv).await?;
-        if kind != wire::HELLO || payload.len() < 32 {
+    fn check_hello(&self, connection: &Connection, payload: &[u8]) -> Result<EndpointCert, Error> {
+        if payload.len() < 32 {
             return Err(Error::Protocol("expected a hello"));
         }
         let (group, certificate) = payload.split_at(32);
@@ -136,10 +202,20 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
         certificate: &EndpointCert,
         intake: &mut Intake<'_, R>,
         verified: bool,
+        serving: bool,
     ) -> Result<Synced, Error> {
         let mine = Inventory::of(&self.mirror)?;
         wire::write(send, wire::INVENTORY, &[&mine.encode()]).await?;
-        let theirs = match wire::read(recv).await? {
+        let mut theirs = wire::read(recv).await?;
+        // A device that did not know it had been added knocked before it found out: its request comes first.
+        if serving && theirs.0 == wire::JOIN {
+            let (device, request) = split_device(&theirs.1)?;
+            if device == certificate.device() {
+                intake.join(device, request)?;
+            }
+            theirs = wire::read(recv).await?;
+        }
+        let theirs = match theirs {
             (wire::INVENTORY, payload) => Inventory::decode(&payload)?,
             _ => return Err(Error::Protocol("expected an inventory")),
         };
@@ -158,6 +234,7 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
             received: intake.received,
             sent,
             refused: std::mem::take(&mut intake.refused),
+            knocked: false,
         })
     }
 
@@ -218,6 +295,71 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
 impl<R: Relay + Send + Sync + std::fmt::Debug + 'static> ProtocolHandler for Peer<R> {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         self.serve(connection).await.map(drop).map_err(AcceptError::from_err)
+    }
+}
+
+/// A device's parts in the sync of several groups, on one endpoint: a connection goes to the group its hello names.
+/// Groups come and go while the endpoint answers.
+#[derive(Debug)]
+pub struct Peers<R> {
+    groups: RwLock<BTreeMap<[u8; 32], Arc<Peer<R>>>>,
+}
+
+impl<R> Default for Peers<R> {
+    fn default() -> Self {
+        Peers {
+            groups: RwLock::new(BTreeMap::new()),
+        }
+    }
+}
+
+impl<R: Relay + Send + Sync + 'static> Peers<R> {
+    /// No groups yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Answer for `peer`'s group with `peer`, in place of the part it had.
+    pub fn insert(&self, peer: Arc<Peer<R>>) {
+        let mut groups = self.groups.write().unwrap_or_else(PoisonError::into_inner);
+        groups.insert(*peer.group.as_bytes(), peer);
+    }
+
+    /// Answer no more for `group`.
+    pub fn remove(&self, group: &GroupId) -> Option<Arc<Peer<R>>> {
+        let mut groups = self.groups.write().unwrap_or_else(PoisonError::into_inner);
+        groups.remove(group.as_bytes())
+    }
+
+    /// Sync with the device that connected through `connection`, for the group its hello names.
+    pub async fn serve(&self, connection: Connection) -> Result<Synced, Error> {
+        let (send, mut recv) = connection.accept_bi().await.map_err(connection_error)?;
+        let hello = read_hello(&mut recv).await?;
+        let peer = hello.get(..32).and_then(|group| {
+            let groups = self.groups.read().unwrap_or_else(PoisonError::into_inner);
+            groups.get(group).cloned()
+        });
+        match peer {
+            Some(peer) => peer.serve_hello(&connection, send, recv, &hello).await,
+            None => {
+                connection.close(4u32.into(), b"no such group");
+                Err(Error::WrongGroup)
+            }
+        }
+    }
+}
+
+impl<R: Relay + Send + Sync + std::fmt::Debug + 'static> ProtocolHandler for Peers<R> {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        self.serve(connection).await.map(drop).map_err(AcceptError::from_err)
+    }
+}
+
+/// The first frame of a connection: the dialer's hello.
+async fn read_hello(recv: &mut RecvStream) -> Result<Vec<u8>, Error> {
+    match wire::read(recv).await? {
+        (wire::HELLO, payload) => Ok(payload),
+        _ => Err(Error::Protocol("expected a hello")),
     }
 }
 

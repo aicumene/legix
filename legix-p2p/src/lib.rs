@@ -15,7 +15,8 @@
 //!   A device can pass on the bundles of devices that are offline, and nothing it could alter.
 //!
 //! `Peer` (feature `iroh`, on by default) dials other devices and, as an iroh `ProtocolHandler` for `ALPN`, answers
-//! them. The application builds the
+//! them; `Peers` answers for several groups on one endpoint. A device that asked to join knocks with its request, which
+//! the device it reaches keeps for the admins. The application builds the
 //! iroh endpoint — its relays, its discovery on the local network — and finds the devices to dial with [`Peer::peers`].
 //! [`replicate`] syncs two relays on one machine, such as a mirror and a synced folder, with the same checks.
 //! `FORMAT.md` specifies the certificate and the protocol.
@@ -42,7 +43,7 @@ pub use error::Error;
 pub use inventory::Inventory;
 pub use outcome::{Counts, Refusal, Synced};
 #[cfg(feature = "iroh")]
-pub use peer::{ALPN, Peer};
+pub use peer::{ALPN, Peer, Peers};
 pub use replicate::replicate;
 
 /// Seconds since 1970.

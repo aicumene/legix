@@ -11,6 +11,11 @@ members of a group only, with nothing to trust in between.
 - **Checked before it is kept.** Entries are checked against the log, bundles against their chains, their signatures
   and the membership, objects against their ids, envelopes against the group's keys. A device carries the bundles of
   devices that are offline to the next device it meets, and can alter none of them.
+- **Joining over the network.** A device that asked to join and is not a member yet *knocks*: it gives its own signed
+  request, the device it reached keeps it for the admins and gives nothing else. Once an admin adds the device, its
+  next sync brings the log and the history.
+- **One endpoint, many groups.** `Peers` answers for every group a device keeps, each from its own mirror, and groups
+  come and go while the endpoint answers.
 - **Any path.** iroh connects directly, punching through NAT, and falls back to relays; the application chooses its
   relays and its discovery, on the local network or beyond. `replicate` syncs a mirror with a shared folder or another
   relay on the same machine, with the same checks.

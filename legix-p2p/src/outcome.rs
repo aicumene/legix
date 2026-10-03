@@ -14,6 +14,9 @@ pub struct Synced {
     pub sent: Counts,
     /// What was refused, and why.
     pub refused: Vec<Refusal>,
+    /// The device that dialed is not a member yet: it gave its own request to join, which the other kept, and nothing
+    /// else was given.
+    pub knocked: bool,
 }
 
 /// How many items of each kind.

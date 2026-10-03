@@ -19,6 +19,7 @@ pub(crate) const OBJECT_END: u8 = 9;
 pub(crate) const ENVELOPE: u8 = 10;
 pub(crate) const END: u8 = 11;
 pub(crate) const DONE: u8 = 12;
+pub(crate) const ASKED: u8 = 13;
 
 /// The most bytes of an object one chunk carries.
 pub(crate) const CHUNK_LEN: usize = 1 << 20;
@@ -34,7 +35,7 @@ fn max_len(kind: u8) -> Option<u64> {
         OBJECT => 32,
         CHUNK => CHUNK_LEN as u64,
         ENVELOPE => 32 + kib(1),
-        OBJECT_END | END | DONE => 0,
+        OBJECT_END | END | DONE | ASKED => 0,
         _ => return None,
     })
 }

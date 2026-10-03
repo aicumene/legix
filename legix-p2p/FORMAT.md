@@ -60,8 +60,12 @@ frame = kind (1 byte) || length of the payload (8 bytes, big-endian) || payload
 | 10 | envelope | document id (32) ‖ the envelope | 32 + 1 KiB |
 | 11 | end | — | 0 |
 | 12 | done | — | 0 |
+| 13 | asked | — | 0 |
 
 A frame of another kind, or longer than its kind allows, ends the connection.
+
+One endpoint may answer for several groups: the acceptor reads the group id of the hello first, and answers as the
+device of that group — or closes the connection when it keeps no such group.
 
 ## Inventory
 
@@ -83,13 +87,18 @@ this order, so that the log arrives before what it decides.
 
 ## Protocol
 
-1. The dialer sends **hello**. The other device, the **acceptor**, checks that the group id is its group, that the
-   certificate is good, that it names the endpoint at the other end of the connection, and that its device is a
-   member — by the acceptor's own log. If not, it closes the connection and gives nothing.
+1. The dialer sends **hello**. A dialer that its own log does not show as a member — it asked to join, and has no
+   log yet or one that does not list it — **knocks**: right after its hello it sends a **join** frame with its own
+   join request. The other device, the **acceptor**, checks that the group id is its group, that the certificate is
+   good, that it names the endpoint at the other end of the connection, and that its device is a member — by the
+   acceptor's own log. If not, it waits a few seconds for a knock: when the join request is the dialer's own and good,
+   it keeps it for the admins, sends **asked** and finishes its stream; otherwise it closes the connection. Either way
+   it gives nothing else. A dialer that reads **asked** closes the connection: it waits to be added.
 2. The acceptor sends **hello**; the dialer checks the group and the certificate the same way. If the dialer's log
    does not show the acceptor as a member — a device that just joined has no log yet — it decides once the acceptor's
    log has arrived, and gives nothing in this sync.
-3. Both send their **inventory**.
+3. Both send their **inventory**. An acceptor that found the dialer a member takes a knock that comes before the
+   dialer's inventory — a device that did not yet know it had been added — as it takes any join request.
 4. Both give, at once, the items the other lacks, then **end**. Until a device knows the other to be a member, it takes
    only entries; the first other frame from a peer that the log, as it then stands, does not show as a member ends the
    sync.

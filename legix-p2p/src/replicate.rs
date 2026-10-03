@@ -63,6 +63,7 @@ pub fn replicate(
         received: intake.received,
         sent: Counts::default(),
         refused: intake.refused,
+        knocked: false,
     })
 }
 

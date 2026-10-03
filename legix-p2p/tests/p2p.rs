@@ -11,7 +11,7 @@ use std::{
 use iroh::{Endpoint, EndpointAddr, endpoint::presets, protocol::Router};
 use legix_crypt::{DirKeyStore, Documents, ObjectStore, Status, StoreKey};
 use legix_members::{GroupId, Identity, JoinRequest, Members, Role, found};
-use legix_p2p::{ALPN, EndpointCert, Error, Peer, Synced, replicate};
+use legix_p2p::{ALPN, EndpointCert, Error, Peer, Peers, Synced, replicate};
 use legix_sign::ssh_key::PrivateKey;
 use legix_sync::{DeviceId, DirRelay, Head, Pulled, Pushed, Relay, Replica};
 
@@ -491,4 +491,131 @@ async fn a_device_that_only_holds_a_copy_of_the_log_gets_nothing_and_gives_nothi
     for online in [ada_online, bo_online, mallory_online] {
         online.stop().await;
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_that_asked_to_join_knocks_and_comes_in_once_added() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, bo) = (Device::new(dir.path(), "ada"), Device::new(dir.path(), "bo"));
+    let group = found_group(&ada, &[]);
+    let adas = ada.commit("terms.md", "Heads of terms\n");
+    ada.push(&group);
+    let ada_online = Online::start(&ada, group).await;
+
+    // Bo asked to join: its mirror holds its own request, and no log. It knocks, and is given nothing.
+    let request = bo.request();
+    bo.mirror().put_join(&bo.id(), request.as_bytes()).unwrap();
+    let bo_online = Online::start(&bo, group).await;
+    let knocked = bo_online.sync_with(&ada_online).await.unwrap();
+    assert!(knocked.knocked);
+    assert!(
+        ada.mirror().joins().unwrap().contains(&request.as_bytes().to_vec()),
+        "the request is with the admin"
+    );
+    assert!(bo.mirror().member_entry(1).unwrap().is_none() && bo.mirror().head(&ada.id(), 1).unwrap().is_none());
+
+    // Ada adds Bo: Bo's next sync brings the log and the history.
+    let entry = ada
+        .members(&group)
+        .change()
+        .add(request, Role::Writer)
+        .sign(&ada.key)
+        .unwrap();
+    ada.mirror().put_member_entry(entry.seq(), entry.as_bytes()).unwrap();
+    let synced = bo_online.sync_with(&ada_online).await.unwrap();
+    assert!(!synced.knocked);
+    assert_eq!((synced.received.entries, synced.received.heads), (2, 1));
+    bo.pull(&group);
+    assert!(bo.has(&ada, &adas));
+    ada_online.stop().await;
+    bo_online.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_without_a_request_still_gets_nothing_in() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, mallory) = (Device::new(dir.path(), "ada"), Device::new(dir.path(), "mallory"));
+    let group = found_group(&ada, &[]);
+    let ada_online = Online::start(&ada, group).await;
+    // Mallory knocks with Ada's own request: the request is not Mallory's, and is not kept.
+    let adas_request = ada.request();
+    mallory
+        .mirror()
+        .put_join(&mallory.id(), adas_request.as_bytes())
+        .unwrap();
+    let mallory_online = Online::start(&mallory, group).await;
+    assert!(mallory_online.sync_with(&ada_online).await.is_err());
+    assert!(ada.mirror().joins().unwrap().is_empty());
+    ada_online.stop().await;
+    mallory_online.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_endpoint_answers_for_several_groups() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, bo, cy) = (
+        Device::new(dir.path(), "ada"),
+        Device::new(dir.path(), "bo"),
+        Device::new(dir.path(), "cy"),
+    );
+    // Ada keeps two groups, each in a mirror of its own: one with Bo, one with Cy.
+    let with_bo = found_group(&ada, &[(&bo, Role::Writer)]);
+    let second = DirRelay::new(ada.repo.join(".git/legix/second"));
+    let first_of_second = found(
+        &ada.key,
+        &ada.identity,
+        "ada@example.com",
+        &[(cy.request(), Role::Writer)],
+    )
+    .unwrap();
+    second.put_member_entry(1, first_of_second.as_bytes()).unwrap();
+    let with_cy: GroupId = first_of_second.id().into();
+
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .alpns(vec![ALPN.to_vec()])
+        .bind()
+        .await
+        .unwrap();
+    let certificate = EndpointCert::new(&ada.key, endpoint.id().as_bytes()).unwrap();
+    let peers = Arc::new(Peers::new());
+    peers.insert(Arc::new(
+        Peer::new(ada.mirror(), with_bo, ada.identity.clone(), certificate.clone()).unwrap(),
+    ));
+    peers.insert(Arc::new(
+        Peer::new(second, with_cy, ada.identity.clone(), certificate).unwrap(),
+    ));
+    let router = Router::builder(endpoint.clone()).accept(ALPN, peers.clone()).spawn();
+    let port = endpoint
+        .bound_sockets()
+        .into_iter()
+        .find(SocketAddr::is_ipv4)
+        .unwrap()
+        .port();
+    let adas = EndpointAddr::new(endpoint.id()).with_ip_addr(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port));
+
+    let bo_online = Online::start(&bo, with_bo).await;
+    let cy_online = Online::start(&cy, with_cy).await;
+    let bo_synced = bo_online
+        .peer
+        .sync_with(&bo_online.endpoint, adas.clone())
+        .await
+        .unwrap();
+    let cy_synced = cy_online
+        .peer
+        .sync_with(&cy_online.endpoint, adas.clone())
+        .await
+        .unwrap();
+    assert_eq!((bo_synced.received.entries, cy_synced.received.entries), (1, 1));
+    assert_eq!(bo.members(&with_bo).roster().group(), Some(with_bo));
+    assert_eq!(cy.members(&with_cy).roster().group(), Some(with_cy));
+
+    // A group the endpoint no longer answers for.
+    peers.remove(&with_bo);
+    assert!(matches!(
+        bo_online.peer.sync_with(&bo_online.endpoint, adas).await,
+        Err(Error::Connection(_) | Error::Protocol(_))
+    ));
+    router.shutdown().await.unwrap();
+    bo_online.stop().await;
+    cy_online.stop().await;
 }
