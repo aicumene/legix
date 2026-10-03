@@ -713,6 +713,7 @@ fn an_applications_notes_go_with_the_versions_and_are_no_documents() {
         saved.documents, 2,
         "the contract and Heads of terms: notes are no documents"
     );
+    assert_eq!(adas.documents().unwrap(), ["Contract.docx", "Heads of terms.docx"]);
     assert!(is_note(".legix/text/Contract.docx.md") && !is_note("Contract.docx") && !is_note(".legixx/a"));
 
     let copy = dir.path().join("Copy");
