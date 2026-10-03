@@ -128,7 +128,7 @@ the current epoch; an envelope keeps its epoch, and members read it with the key
 
 ## Relay
 
-A relay keeps six kinds of things. The directory layout below is that of a relay in a shared folder; another relay
+A relay keeps seven kinds of things. The directory layout below is that of a relay in a shared folder; another relay
 keeps the same things under the same names.
 
 ```
@@ -138,6 +138,7 @@ envelopes/<2 hex>/<62 hex>                            envelopes, by document id
 erased/<2 hex>/<62 hex>                               empty: the envelope of this document was erased
 members/<seq as 20 digits, zero-padded>               the entries of the membership log, never replaced
 joins/<device id>                                     the latest join request of each device
+endpoints/<device id>                                 the latest endpoint certificate of each device (legix-p2p)
 ```
 
 A relay:
@@ -187,7 +188,9 @@ Then it applies the body:
    those that are no longer in the snapshot;
 10. it fetches the documents and their envelopes that are on the relay, and keeps a key only if the document's object
     commits to it (legix-crypt's key commitment);
-11. it erases the documents in `erased` lines: their keys are destroyed and refused from then on.
+11. it erases the documents in `erased` lines: their keys are destroyed and refused from then on, and their envelopes
+    and objects are deleted from the relay it reads from — which may be its own mirror (legix-p2p), which the eraser
+    never reached.
 
 A device that finds a head whose `prev` is not the bundle it applied before has found a fork: the device or the relay
 wrote two different bundles at one place in the chain. It applies nothing more from that device.

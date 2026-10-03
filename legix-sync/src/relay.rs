@@ -29,7 +29,7 @@ pub trait Relay {
     fn has_object(&self, oid: &Oid) -> Result<bool, Error>;
 
     /// The object `oid`, if the relay has it.
-    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + '_>>, Error>;
+    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + Send + '_>>, Error>;
 
     /// Keep the object `oid` once it is checked to hash to `oid`.
     fn put_object(&self, oid: &Oid, object: &mut dyn Read) -> Result<(), Error>;
@@ -60,6 +60,18 @@ pub trait Relay {
 
     /// Leave the join request of `device` for the admins, replacing one it left before.
     fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error>;
+
+    /// The ids of the objects the relay has.
+    fn object_ids(&self) -> Result<Vec<Oid>, Error>;
+
+    /// The documents whose envelopes the relay has.
+    fn envelope_ids(&self) -> Result<Vec<Oid>, Error>;
+
+    /// The endpoint certificates devices left: how other devices reach them directly.
+    fn endpoints(&self) -> Result<Vec<Vec<u8>>, Error>;
+
+    /// Leave the endpoint certificate of `device`, replacing one it left before.
+    fn put_endpoint(&self, device: &DeviceId, certificate: &[u8]) -> Result<(), Error>;
 }
 
 impl<R: Relay + ?Sized> Relay for &R {
@@ -79,7 +91,7 @@ impl<R: Relay + ?Sized> Relay for &R {
         (**self).has_object(oid)
     }
 
-    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + '_>>, Error> {
+    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + Send + '_>>, Error> {
         (**self).open_object(oid)
     }
 
@@ -118,6 +130,22 @@ impl<R: Relay + ?Sized> Relay for &R {
     fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error> {
         (**self).put_join(device, request)
     }
+
+    fn object_ids(&self) -> Result<Vec<Oid>, Error> {
+        (**self).object_ids()
+    }
+
+    fn envelope_ids(&self) -> Result<Vec<Oid>, Error> {
+        (**self).envelope_ids()
+    }
+
+    fn endpoints(&self) -> Result<Vec<Vec<u8>>, Error> {
+        (**self).endpoints()
+    }
+
+    fn put_endpoint(&self, device: &DeviceId, certificate: &[u8]) -> Result<(), Error> {
+        (**self).put_endpoint(device, certificate)
+    }
 }
 
 /// A relay in a directory that several devices see: a network share, a synced cloud folder, a removable drive.
@@ -129,6 +157,7 @@ impl<R: Relay + ?Sized> Relay for &R {
 /// erased/<2 hex>/<62 hex>
 /// members/<seq as 20 digits>
 /// joins/<device id>
+/// endpoints/<device id>
 /// ```
 ///
 /// A synced folder that keeps deleted files for a while keeps erased envelopes for as long.
@@ -206,7 +235,7 @@ impl Relay for DirRelay {
         Ok(self.objects.contains(oid)?)
     }
 
-    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + '_>>, Error> {
+    fn open_object(&self, oid: &Oid) -> Result<Option<Box<dyn Read + Send + '_>>, Error> {
         match self.objects.open(oid) {
             Ok(file) => Ok(Some(Box::new(file))),
             Err(legix_crypt::Error::ObjectMissing(_)) => Ok(None),
@@ -266,30 +295,83 @@ impl Relay for DirRelay {
     }
 
     fn joins(&self) -> Result<Vec<Vec<u8>>, Error> {
-        let entries = match fs::read_dir(self.dir.join("joins")) {
-            Ok(entries) => entries,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(err) => return Err(err.into()),
-        };
-        let mut names = Vec::new();
-        for entry in entries {
-            let entry = entry?;
-            if entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| name.parse::<DeviceId>().is_ok())
-            {
-                names.push(entry.path());
-            }
-        }
-        names.sort();
-        names.iter().map(|path| fs::read(path).map_err(Error::from)).collect()
+        read_by_device(&self.dir.join("joins"))
     }
 
     fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error> {
         fsutil::write_atomically(&self.dir.join("joins").join(device.to_hex()), request)?;
         Ok(())
     }
+
+    fn object_ids(&self) -> Result<Vec<Oid>, Error> {
+        fanned_out(&self.dir.join("objects"))
+    }
+
+    fn envelope_ids(&self) -> Result<Vec<Oid>, Error> {
+        fanned_out(&self.dir.join("envelopes"))
+    }
+
+    fn endpoints(&self) -> Result<Vec<Vec<u8>>, Error> {
+        read_by_device(&self.dir.join("endpoints"))
+    }
+
+    fn put_endpoint(&self, device: &DeviceId, certificate: &[u8]) -> Result<(), Error> {
+        fsutil::write_atomically(&self.dir.join("endpoints").join(device.to_hex()), certificate)?;
+        Ok(())
+    }
+}
+
+/// The files of `dir` named by device ids, in the order of the ids.
+fn read_by_device(dir: &Path) -> Result<Vec<Vec<u8>>, Error> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.parse::<DeviceId>().is_ok())
+        {
+            names.push(entry.path());
+        }
+    }
+    names.sort();
+    names.iter().map(|path| fs::read(path).map_err(Error::from)).collect()
+}
+
+/// The ids of the files in `dir`, fanned out as `<2 hex>/<62 hex>`.
+fn fanned_out(dir: &Path) -> Result<Vec<Oid>, Error> {
+    let fans = match fs::read_dir(dir) {
+        Ok(fans) => fans,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut ids = Vec::new();
+    for fan in fans {
+        let fan = fan?;
+        let Some(prefix) = fan.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if prefix.len() != 2 || !fan.file_type()?.is_dir() {
+            continue;
+        }
+        for file in fs::read_dir(fan.path())? {
+            // Temporary files start with a dot; other names are not ids.
+            if let Some(Ok(oid)) = file?
+                .file_name()
+                .to_str()
+                .map(|rest| Oid::from_hex(&format!("{prefix}{rest}")))
+            {
+                ids.push(oid);
+            }
+        }
+    }
+    ids.sort();
+    Ok(ids)
 }
 
 fn remove_if_present(path: &Path) -> io::Result<()> {

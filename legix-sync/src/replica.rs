@@ -367,6 +367,9 @@ impl<'a, R: Relay + ?Sized, A: Access + ?Sized, K: KeyStore, S: SigningKey> Repl
         }
         for oid in &manifest.erased {
             self.documents.erase(oid)?;
+            // The relay this device reads from may be its own mirror, which the eraser never reached.
+            self.relay.erase_envelope(oid)?;
+            self.relay.remove_object(oid)?;
         }
         Ok((
             Applied {
@@ -486,8 +489,9 @@ impl<'a, R: Relay + ?Sized, A: Access + ?Sized, K: KeyStore, S: SigningKey> Repl
         Ok(true)
     }
 
-    /// Bring a document here from the relay: its object and its key. Returns whether it is readable here.
-    fn fetch_document(&self, oid: &Oid) -> Result<bool, Error> {
+    /// Bring a document here from the relay: its object and its key. Returns whether it is readable here. A bundle's
+    /// documents are fetched when it is applied; this fetches one that was not on the relay then.
+    pub fn fetch_document(&self, oid: &Oid) -> Result<bool, Error> {
         match self.documents.status(oid)? {
             Status::Readable => return Ok(true),
             Status::Erased => return Ok(false),

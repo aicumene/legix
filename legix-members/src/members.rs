@@ -22,41 +22,22 @@ impl Members {
     ///
     /// `pin` is a file where the device keeps the last entry it checked: a log that does not reach it, or holds another
     /// entry there, is refused, so the relay can neither roll the log back nor show this device another one.
-    pub fn load(relay: &impl Relay, group: &GroupId, identity: &Identity, pin: &Path) -> Result<Self, Error> {
+    pub fn load(
+        relay: &(impl Relay + ?Sized),
+        group: &GroupId,
+        identity: &Identity,
+        pin: &Path,
+    ) -> Result<Self, Error> {
         let pinned = Pin::read(pin, group)?;
-        let mut roster = Roster::new();
-        for seq in 1.. {
-            let Some(bytes) = relay.member_entry(seq)? else {
-                break;
-            };
-            let entry = Entry::parse(&bytes).map_err(|err| match err {
-                Error::Format(reason) => Error::Rule {
-                    seq,
-                    rule: crate::Rule::Format(reason),
-                },
-                err => err,
-            })?;
-            if seq == 1 && GroupId::from(entry.id()) != *group {
-                return Err(Error::WrongGroup);
-            }
-            if pinned.is_some_and(|(pinned_seq, pinned_id)| pinned_seq == seq && pinned_id != entry.id()) {
-                return Err(Error::Fork { seq });
-            }
-            roster.apply(&entry)?;
-        }
-        if roster.seq() == 0 {
-            return Err(Error::NoLog);
-        }
-        if let Some((pinned_seq, _)) = pinned
-            && pinned_seq > roster.seq()
-        {
-            return Err(Error::Rollback {
-                pinned: pinned_seq,
-                found: roster.seq(),
-            });
-        }
+        let roster = check(relay, group, pinned)?;
         Pin::write(pin, group, roster.seq(), &roster.last())?;
         Self::with_identity(roster, identity)
+    }
+
+    /// Like [`Members::load`], without a pin: for a relay this device alone writes to, such as its own mirror, whose
+    /// entries were checked on their way in.
+    pub fn read(relay: &(impl Relay + ?Sized), group: &GroupId, identity: &Identity) -> Result<Self, Error> {
+        Self::with_identity(check(relay, group, None)?, identity)
     }
 
     /// The membership `roster` defines, and the group keys `identity` opens in it.
@@ -290,6 +271,42 @@ pub fn found(
     let entry = Entry::sign(&text, signer)?;
     Roster::new().apply(&entry)?;
     Ok(entry)
+}
+
+/// The log of `group` on `relay`, checked from its first entry, and against the entry this device pinned.
+fn check(relay: &(impl Relay + ?Sized), group: &GroupId, pinned: Option<(u64, EntryId)>) -> Result<Roster, Error> {
+    let mut roster = Roster::new();
+    for seq in 1.. {
+        let Some(bytes) = relay.member_entry(seq)? else {
+            break;
+        };
+        let entry = Entry::parse(&bytes).map_err(|err| match err {
+            Error::Format(reason) => Error::Rule {
+                seq,
+                rule: crate::Rule::Format(reason),
+            },
+            err => err,
+        })?;
+        if seq == 1 && GroupId::from(entry.id()) != *group {
+            return Err(Error::WrongGroup);
+        }
+        if pinned.is_some_and(|(pinned_seq, pinned_id)| pinned_seq == seq && pinned_id != entry.id()) {
+            return Err(Error::Fork { seq });
+        }
+        roster.apply(&entry)?;
+    }
+    if roster.seq() == 0 {
+        return Err(Error::NoLog);
+    }
+    if let Some((pinned_seq, _)) = pinned
+        && pinned_seq > roster.seq()
+    {
+        return Err(Error::Rollback {
+            pinned: pinned_seq,
+            found: roster.seq(),
+        });
+    }
+    Ok(roster)
 }
 
 /// The device whose recipient is `recipient`.
