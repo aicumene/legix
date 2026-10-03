@@ -339,3 +339,12 @@ fn an_object_has_one_key() {
         );
     }
 }
+
+#[test]
+fn a_key_is_checked_against_an_object_from_its_header() {
+    let (key, object) = sealed(3 * CHUNK_LEN);
+    object::check_key(&key, &object[..HEADER_LEN]).unwrap();
+    let other = DocumentKey::generate().unwrap();
+    assert!(matches!(object::check_key(&other, &object[..]), Err(Error::WrongKey)));
+    assert!(matches!(object::check_key(&key, &object[..10]), Err(Error::Format(_))));
+}

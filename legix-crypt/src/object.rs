@@ -117,19 +117,7 @@ pub(crate) fn seal_with_salt(
 /// discarded. [`Documents::read`](crate::Documents::read) checks the object against its id first, so nothing is
 /// written unless the object is the one the pointer names.
 pub fn open(key: &DocumentKey, mut object: impl Read, mut document: impl Write) -> Result<u64, Error> {
-    let mut header = [0; HEADER_LEN];
-    if read_full(&mut object, &mut header)? < HEADER_LEN {
-        return Err(Error::Format("shorter than the header"));
-    }
-    let (magic, rest) = header.split_at(MAGIC.len());
-    if magic != MAGIC {
-        return Err(Error::Format("it does not start with `legix-crypt/1`"));
-    }
-    let (salt, commitment) = rest.split_at(SALT_LEN);
-    let keys = Keys::derive(key, salt.try_into().expect("the salt's length"));
-    if !bool::from(keys.commitment.ct_eq(commitment)) {
-        return Err(Error::WrongKey);
-    }
+    let keys = read_header(key, &mut object)?;
 
     // One byte more than a chunk tells whether the chunk is the last one.
     let mut buf = Zeroizing::new(vec![0; CHUNK_LEN + TAG_LEN + 1]);
@@ -158,6 +146,29 @@ pub fn open(key: &DocumentKey, mut object: impl Read, mut document: impl Write) 
     }
     document.flush()?;
     Ok(size)
+}
+
+/// Check that `key` is the key `object` was encrypted with, from the object's header alone: nothing is decrypted.
+pub fn check_key(key: &DocumentKey, mut object: impl Read) -> Result<(), Error> {
+    read_header(key, &mut object).map(drop)
+}
+
+/// Read an object's header and derive its keys from `key`, refusing a key the header does not commit to.
+fn read_header(key: &DocumentKey, object: &mut impl Read) -> Result<Keys, Error> {
+    let mut header = [0; HEADER_LEN];
+    if read_full(object, &mut header)? < HEADER_LEN {
+        return Err(Error::Format("shorter than the header"));
+    }
+    let (magic, rest) = header.split_at(MAGIC.len());
+    if magic != MAGIC {
+        return Err(Error::Format("it does not start with `legix-crypt/1`"));
+    }
+    let (salt, commitment) = rest.split_at(SALT_LEN);
+    let keys = Keys::derive(key, salt.try_into().expect("the salt's length"));
+    if !bool::from(keys.commitment.ct_eq(commitment)) {
+        return Err(Error::WrongKey);
+    }
+    Ok(keys)
 }
 
 /// The keys derived from a document key and an object's salt.
