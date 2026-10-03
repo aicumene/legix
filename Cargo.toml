@@ -306,6 +306,7 @@ members = [
     "legix-sync",
     "legix-members",
     "legix-p2p",
+    "legix-folder",
 ]
 
 [workspace.dependencies]

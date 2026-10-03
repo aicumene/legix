@@ -39,6 +39,7 @@ infrastructure.
 | Sync without a trusted server: encrypted, signed, append-only bundles per device through any relay; standard git bundles inside; documents and their erasure travel too | Available — [`legix-sync`](legix-sync) |
 | Membership and key rotation: a signed log of who may read and write; group keys sealed for every device; a new key when a device leaves; revocation without trusting clocks | Available — [`legix-members`](legix-members) |
 | Device-to-device sync on the local network and through NAT, over iroh: members only, every item checked before it is kept, devices carrying each other's bundles | Available — [`legix-p2p`](legix-p2p) |
+| A folder of documents with a history, for an application in one type: versions, restore, sync through a shared folder, members | Available — [`legix-folder`](legix-folder) |
 
 Signed history:
 
@@ -101,9 +102,9 @@ for (_, other) in peer.peers()? {
 
 Applications build on leGix for years, so its API is held to a contract:
 
-- **leGix's own crates** (`legix-sign`, `legix-crypt`, `legix-sync`, `legix-members` and `legix-p2p`) work on
-  git's stable formats, on formats of their own that are specified and versioned, and on their own types. They follow
-  semantic versioning strictly.
+- **leGix's own crates** (`legix-sign`, `legix-crypt`, `legix-sync`, `legix-members`, `legix-p2p` and
+  `legix-folder`) work on git's stable formats, on formats of their own that are specified and versioned, and on their
+  own types. They follow semantic versioning strictly.
 - **Deprecation before removal.** An API is deprecated for at least one minor release, with its replacement
   named, before it goes away in the next major version.
 - **Toolchain.** A minimum supported Rust version is raised only in minor releases and is stated in each crate.

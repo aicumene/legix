@@ -1,0 +1,30 @@
+lints.workspace = true
+
+[package]
+name = "legix-folder"
+version = "0.1.0"
+description = "A folder of documents with a signed, encrypted, synced history: leGix for an application in one type"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+authors = ["Ivan Menshikov <menshivan@gmail.com>"]
+edition = "2024"
+rust-version = "1.88"
+keywords = ["git", "documents", "history", "encryption", "legix"]
+categories = ["filesystem", "development-tools"]
+include = ["src/**/*", "README.md", "LICENSE-*"]
+
+[dependencies]
+legix = { version = "^0.88.0", path = "../legix", features = ["sha256"] }
+legix-crypt = { version = "^0.1.0", path = "../legix-crypt" }
+legix-sign = { version = "^0.1.0", path = "../legix-sign" }
+legix-sync = { version = "^0.1.0", path = "../legix-sync" }
+legix-members = { version = "^0.1.0", path = "../legix-members" }
+legix-p2p = { version = "^0.1.0", path = "../legix-p2p", default-features = false }
+
+blake3 = "1.8.7"
+tempfile = "3.26.0"
+thiserror = "2.0.18"
+zeroize = "1.9.0"
+
+[dev-dependencies]
+legix-members = { version = "^0.1.0", path = "../legix-members" }

@@ -3608,6 +3608,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "legix-folder"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "legix",
+ "legix-crypt",
+ "legix-members",
+ "legix-p2p",
+ "legix-sign",
+ "legix-sync",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
 name = "legix-fs"
 version = "0.23.0"
 dependencies = [
