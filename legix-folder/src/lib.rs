@@ -24,13 +24,18 @@ mod walk;
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap},
+    collections::{BTreeMap, BTreeSet, BinaryHeap},
     fmt::{self, Write as _},
     fs,
     path::{Component, Path, PathBuf},
 };
 
-use legix::{Repository, bstr::ByteSlice, objs::tree::EntryKind};
+use legix::{
+    Repository,
+    bstr::ByteSlice,
+    objs::tree::EntryKind,
+    refs::{Target, transaction::PreviousValue},
+};
 use legix_crypt::{DirKeyStore, Documents, ObjectStore, Pointer, Status};
 use legix_sign::{AllowedSigners, Trust, repository::RepositoryExt, ssh_key::PrivateKey};
 use legix_sync::{DirRelay, Relay, Replica};
@@ -215,6 +220,35 @@ pub struct Synced {
     pub waiting: usize,
     /// What was refused, and why.
     pub refused: Vec<String>,
+}
+
+/// What [`Folder::bring_in`] did to the documents.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct BroughtIn {
+    /// The version the folder is at now: the one brought in, when it held this device's last version, or a new one
+    /// with both as its parents. `None` when that version was in already.
+    pub version: Option<Version>,
+    /// Documents now as the other version has them: changed or added there, and not changed here.
+    pub updated: Vec<String>,
+    /// Documents the other version removed, and this device had not changed: removed here too.
+    pub removed: Vec<String>,
+    /// Text documents both changed in different lines: merged, line by line.
+    pub merged: Vec<String>,
+    /// Documents both changed: this device's stays as it is, the other version's is written next to it — the path
+    /// of each, then of the copy.
+    pub conflicts: Vec<(String, String)>,
+}
+
+/// What bringing in a version does to one document.
+enum Step {
+    /// Write the other version's document, with its pointer.
+    Take(String, ObjectId, Vec<u8>),
+    Remove(String),
+    /// Write a text both changed, merged.
+    Merge(String, Vec<u8>),
+    /// Write the other version's document next to this device's, under the second path.
+    Copy(String, String, ObjectId, Vec<u8>),
 }
 
 /// A folder of documents with a history. See the crate's documentation.
@@ -418,13 +452,7 @@ impl Folder {
     pub fn versions(&self) -> Result<Vec<Version>, Error> {
         let signers = self.signers();
         let mut tips: Vec<ObjectId> = self.head()?.into_iter().collect();
-        let references = self.repo.references().map_err(repository)?;
-        for reference in references.prefixed("refs/legix/devices/").map_err(repository)? {
-            let reference = reference.map_err(repository)?;
-            if let Some(id) = reference.try_id() {
-                tips.push(id.detach());
-            }
-        }
+        tips.extend(self.device_tips()?);
         // Newest first, and never before a version it follows: two versions in one second, or a clock that went
         // back, cannot turn the history around.
         let mut found = BTreeMap::new();
@@ -460,6 +488,223 @@ impl Folder {
             versions.push(version);
         }
         Ok(versions)
+    }
+
+    /// The documents added, changed or removed since the last version, by their paths in the folder.
+    pub fn changes(&self) -> Result<Vec<String>, Error> {
+        let known = walk::read_index(&self.state.join("index"));
+        let mut changed = Vec::new();
+        let mut seen = BTreeSet::new();
+        for (name, path) in walk::documents(&self.settings.work)? {
+            let differs = match known.get(&name) {
+                Some(known) => walk::stamp(&path)? != (known.size, known.modified) && walk::hash(&path)? != known.hash,
+                None => true,
+            };
+            if differs {
+                changed.push(name.clone());
+            }
+            seen.insert(name);
+        }
+        changed.extend(known.into_keys().filter(|name| !seen.contains(name)));
+        changed.sort();
+        Ok(changed)
+    }
+
+    /// The newest version of each other device that this device has not brought in, newest first. A version another
+    /// one already holds is left out.
+    pub fn incoming(&self) -> Result<Vec<Version>, Error> {
+        let head = self.head()?;
+        let mut tips = Vec::new();
+        for tip in self.device_tips()? {
+            if Some(tip) != head && !head.is_some_and(|head| self.holds(head, tip)) && !tips.contains(&tip) {
+                tips.push(tip);
+            }
+        }
+        let newest: Vec<ObjectId> = tips
+            .iter()
+            .copied()
+            .filter(|&tip| !tips.iter().any(|&other| other != tip && self.holds(other, tip)))
+            .collect();
+        let signers = self.signers();
+        let mut incoming = newest
+            .into_iter()
+            .map(|tip| self.version(tip, &signers))
+            .collect::<Result<Vec<_>, _>>()?;
+        incoming.sort_by(|a, b| b.time.cmp(&a.time).then(a.id.cmp(&b.id)));
+        Ok(incoming)
+    }
+
+    /// Bring the changes of `version` — another device's — into the folder:
+    ///
+    /// - what only the other version changed, added or removed is taken as it is there;
+    /// - what only this device changed stays;
+    /// - a text document (`.md`, `.markdown`, `.txt`) both changed in different lines is merged line by line;
+    /// - any other document both changed stays as this device has it, and the other version's is written next to it,
+    ///   its name followed by the name of the device that signed it: nothing is lost, and nothing is written over;
+    /// - a document one removed and the other changed stays, as changed.
+    ///
+    /// When `version` holds this device's last version, the folder moves forward to it; otherwise a new version
+    /// records it, with `message`, and with this device's last version and `version` as its parents. The folder must
+    /// hold no changes outside a version (see [`Folder::changes`]), and every document needed from `version` must be
+    /// readable here: nothing is written until both hold.
+    pub fn bring_in(&self, version: &ObjectId, message: &str) -> Result<BroughtIn, Error> {
+        let theirs_tree = self.tree_of(*version).map_err(|_| Error::NoSuchVersion)?;
+        let head = self.head()?;
+        if head.is_some_and(|head| head == *version || self.holds(head, *version)) {
+            return Ok(BroughtIn::default());
+        }
+        if !self.changes()?.is_empty() {
+            return Err(Error::Unsaved);
+        }
+        let forward = head.is_none_or(|head| self.holds(*version, head));
+        let ours_tree = head.map(|head| self.tree_of(head)).transpose()?;
+        let base_tree = match head {
+            Some(_) if forward => ours_tree,
+            Some(head) => match self.repo.merge_base(head, *version) {
+                Ok(base) => Some(self.tree_of(base.detach())?),
+                // Histories that never met: everything either one holds is new to the other.
+                Err(_) => None,
+            },
+            None => None,
+        };
+        let base = self.pointers(base_tree)?;
+        let ours = self.pointers(ours_tree)?;
+        let theirs = self.pointers(Some(theirs_tree))?;
+        let signers = self.signers();
+        let label = self
+            .version(*version, &signers)?
+            .principal
+            .unwrap_or_else(|| "another device".to_owned());
+
+        // What happens to each document is decided before anything is written.
+        let mut steps = Vec::new();
+        let mut unreadable = Vec::new();
+        let mut names: BTreeSet<String> = ours.keys().cloned().collect();
+        let paths: BTreeSet<&String> = base.keys().chain(ours.keys()).chain(theirs.keys()).collect();
+        for path in paths {
+            let (b, o, t) = (base.get(path), ours.get(path), theirs.get(path));
+            // Nothing new from them: the same as here, or not changed there.
+            if t == o || t == b {
+                continue;
+            }
+            // Changed only there — or removed here and changed there: theirs.
+            if o == b || o.is_none() {
+                match t {
+                    None => {
+                        names.remove(path);
+                        steps.push(Step::Remove(path.clone()));
+                    }
+                    Some(&blob) => match self.content(blob)? {
+                        Some(bytes) => {
+                            names.insert(path.clone());
+                            steps.push(Step::Take(path.clone(), blob, bytes));
+                        }
+                        None => unreadable.push(path.clone()),
+                    },
+                }
+                continue;
+            }
+            // Changed in both. Removed there and changed here: ours stays.
+            let (Some(&o), Some(&t)) = (o, t) else {
+                continue;
+            };
+            let Some(theirs_bytes) = self.content(t)? else {
+                unreadable.push(path.clone());
+                continue;
+            };
+            let ours_bytes = self.content(o)?;
+            // The same content, saved on both devices.
+            if ours_bytes.as_deref() == Some(theirs_bytes.as_slice()) {
+                continue;
+            }
+            let base_bytes = match b {
+                Some(&b) => self.content(b)?,
+                None => None,
+            };
+            if let (Some(ours_bytes), Some(base_bytes)) = (&ours_bytes, &base_bytes)
+                && mergeable(path)
+                && let Some(merged) = merge_text(base_bytes, ours_bytes, &theirs_bytes)
+            {
+                steps.push(Step::Merge(path.clone(), merged));
+                continue;
+            }
+            let copy = copy_name(path, &label, |name| {
+                names.contains(name) || self.settings.work.join(name).exists()
+            });
+            names.insert(copy.clone());
+            steps.push(Step::Copy(path.clone(), copy, t, theirs_bytes));
+        }
+        // Writing the rest would leave these out of the version, as if removed — for every device that takes it.
+        if !unreadable.is_empty() {
+            return Err(Error::Unreadable(unreadable));
+        }
+
+        let index_path = self.state.join("index");
+        let mut index = walk::read_index(&index_path);
+        let mut result = ours;
+        let mut brought = BroughtIn::default();
+        for step in steps {
+            match step {
+                Step::Take(path, blob, bytes) => {
+                    let target = self.settings.work.join(&path);
+                    settings::write_atomically(&target, &bytes)?;
+                    index.insert(path.clone(), self.known(&target, blob)?);
+                    result.insert(path.clone(), blob);
+                    brought.updated.push(path);
+                }
+                Step::Remove(path) => {
+                    match fs::remove_file(self.settings.work.join(&path)) {
+                        Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
+                        _ => {}
+                    }
+                    index.remove(&path);
+                    result.remove(&path);
+                    brought.removed.push(path);
+                }
+                Step::Merge(path, merged) => {
+                    let target = self.settings.work.join(&path);
+                    settings::write_atomically(&target, &merged)?;
+                    let pointer = self.documents.add(merged.as_slice())?;
+                    let blob = self.repo.write_blob(pointer.to_string()).map_err(repository)?.detach();
+                    index.insert(path.clone(), self.known(&target, blob)?);
+                    result.insert(path.clone(), blob);
+                    brought.merged.push(path);
+                }
+                Step::Copy(path, copy, blob, bytes) => {
+                    let target = self.settings.work.join(&copy);
+                    settings::write_atomically(&target, &bytes)?;
+                    index.insert(copy.clone(), self.known(&target, blob)?);
+                    result.insert(copy.clone(), blob);
+                    brought.conflicts.push((path, copy));
+                }
+            }
+        }
+
+        let id = if forward {
+            // This device's branch moves to theirs: no new version.
+            let previous = match head {
+                Some(head) => PreviousValue::MustExistAndMatch(Target::Object(head)),
+                None => PreviousValue::MustNotExist,
+            };
+            self.repo
+                .reference(BRANCH, *version, previous, "legix-folder: bring in")
+                .map_err(repository)?;
+            *version
+        } else {
+            let mut editor = self.repo.edit_tree(self.repo.empty_tree().id).map_err(repository)?;
+            for (path, blob) in &result {
+                editor
+                    .upsert(path.as_str(), EntryKind::Blob, *blob)
+                    .map_err(repository)?;
+            }
+            let tree = editor.write().map_err(repository)?.detach();
+            let parents: Vec<ObjectId> = head.into_iter().chain([*version]).collect();
+            self.repo
+                .commit_signed(BRANCH, message, tree, parents, &self.keys.signing)?
+        };
+        walk::write_index(&index_path, &index)?;
+        brought.version = Some(self.version(id, &signers)?);
+        Ok(brought)
     }
 
     /// Write the documents of `version` into `to`, a folder that is new or holds no documents — a `.DS_Store` the
@@ -615,6 +860,74 @@ impl Folder {
         }
     }
 
+    /// The newest version of every device whose versions reached this one.
+    fn device_tips(&self) -> Result<Vec<ObjectId>, Error> {
+        let mut tips = Vec::new();
+        let references = self.repo.references().map_err(repository)?;
+        for reference in references.prefixed("refs/legix/devices/").map_err(repository)? {
+            let reference = reference.map_err(repository)?;
+            if let Some(id) = reference.try_id() {
+                tips.push(id.detach());
+            }
+        }
+        Ok(tips)
+    }
+
+    /// Whether the history up to `version` holds `other`.
+    fn holds(&self, version: ObjectId, other: ObjectId) -> bool {
+        self.repo
+            .merge_base(version, other)
+            .is_ok_and(|base| base.detach() == other)
+    }
+
+    fn tree_of(&self, commit: ObjectId) -> Result<ObjectId, Error> {
+        Ok(self
+            .repo
+            .find_commit(commit)
+            .map_err(repository)?
+            .tree_id()
+            .map_err(repository)?
+            .detach())
+    }
+
+    /// The documents of a tree, by path, each with the blob of its pointer.
+    fn pointers(&self, tree: Option<ObjectId>) -> Result<BTreeMap<String, ObjectId>, Error> {
+        Ok(match tree {
+            Some(tree) => self.files(tree)?.into_iter().collect(),
+            None => BTreeMap::new(),
+        })
+    }
+
+    /// The content of the document whose pointer is `blob`; `None` when this device cannot read it.
+    fn content(&self, blob: ObjectId) -> Result<Option<Vec<u8>>, Error> {
+        let data = self.repo.find_object(blob).map_err(repository)?.data.clone();
+        let Ok(pointer) = Pointer::parse(&data) else {
+            return Ok(None);
+        };
+        match self.documents.read_to_vec(&pointer) {
+            Ok(document) => Ok(Some(document)),
+            Err(
+                legix_crypt::Error::Erased(_)
+                | legix_crypt::Error::KeyMissing(_)
+                | legix_crypt::Error::ObjectMissing(_),
+            ) => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// What the index knows of the document just written at `path`, whose pointer is `blob`.
+    fn known(&self, path: &Path, blob: ObjectId) -> Result<Known, Error> {
+        let data = self.repo.find_object(blob).map_err(repository)?.data.clone();
+        let pointer = Pointer::parse(&data).map_err(|_| Error::Format("a version's pointer"))?;
+        let (size, modified) = walk::stamp(path)?;
+        Ok(Known {
+            size,
+            modified,
+            hash: walk::hash(path)?,
+            pointer,
+        })
+    }
+
     fn head(&self) -> Result<Option<ObjectId>, Error> {
         Ok(self
             .repo
@@ -697,5 +1010,95 @@ impl Folder {
         }
         files.sort();
         Ok(files)
+    }
+}
+
+/// Whether a document is text that merges line by line.
+fn mergeable(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    [".md", ".markdown", ".txt"].iter().any(|ext| name.ends_with(ext))
+}
+
+/// `ours` and `theirs` merged line by line against `base`, unless a line was changed on both sides, or one is not text.
+fn merge_text(base: &[u8], ours: &[u8], theirs: &[u8]) -> Option<Vec<u8>> {
+    use legix::merge::blob::{Resolution, builtin_driver};
+    if [base, ours, theirs].iter().any(|text| text.contains(&0)) {
+        return None;
+    }
+    let mut merged = Vec::new();
+    let mut input = legix::diff::blob::InternedInput::default();
+    let resolution = builtin_driver::text(
+        &mut merged,
+        &mut input,
+        Default::default(),
+        ours,
+        base,
+        theirs,
+        Default::default(),
+    );
+    (resolution != Resolution::Conflict).then_some(merged)
+}
+
+/// The path the other side's copy of `path` takes: its name, then `(label)`, before the extension — `Heads of
+/// terms (bo@example.com).docx` — and a number when that is taken.
+fn copy_name(path: &str, label: &str, taken: impl Fn(&str) -> bool) -> String {
+    let label: String = label
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':') || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let (dir, name) = match path.rsplit_once('/') {
+        Some((dir, name)) => (format!("{dir}/"), name),
+        None => (String::new(), path),
+    };
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (name, String::new()),
+    };
+    let mut n = 1;
+    loop {
+        let candidate = match n {
+            1 => format!("{dir}{stem} ({label}){ext}"),
+            n => format!("{dir}{stem} ({label} {n}){ext}"),
+        };
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_copy_is_named_after_the_device_and_never_takes_a_name() {
+        let taken = |name: &str| name == "Evidence/Invoice (bo@example.com).pdf";
+        assert_eq!(
+            copy_name("Heads of terms.docx", "bo@example.com", |_| false),
+            "Heads of terms (bo@example.com).docx"
+        );
+        assert_eq!(
+            copy_name("Evidence/Invoice.pdf", "bo@example.com", taken),
+            "Evidence/Invoice (bo@example.com 2).pdf"
+        );
+        assert_eq!(copy_name("README", "a/b:c", |_| false), "README (a-b-c)");
+        assert_eq!(copy_name(".profile", "bo", |_| false), ".profile (bo)");
+    }
+
+    #[test]
+    fn only_text_merges_line_by_line() {
+        assert!(mergeable("Notes.md") && mergeable("a/B.TXT") && mergeable("x.markdown"));
+        assert!(!mergeable("Heads of terms.docx") && !mergeable("md"));
+        let merged = merge_text(b"a\nb\nc\n", b"A\nb\nc\n", b"a\nb\nC\n").unwrap();
+        assert_eq!(merged, b"A\nb\nC\n");
+        assert_eq!(merge_text(b"a\n", b"A\n", b"B\n"), None, "the same line, two ways");
+        assert_eq!(merge_text(b"a\0", b"A\0", b"a\0"), None, "not text");
     }
 }

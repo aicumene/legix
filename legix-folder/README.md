@@ -11,6 +11,14 @@ apart from the documents:
 - **Restore.** `versions` lists the versions of every device of the group, newest first, each with whether a member
   signed it. `restore` writes a version's documents into a new folder or one without documents, never over a file
   and never outside the folder, whatever the version holds.
+- **Bring in.** `incoming` lists the newest version of each other device that this one has not taken in, and
+  `bring_in` takes it into the folder: what only the other device changed, added or removed comes in as it is there;
+  what only this one changed stays; a text document (`.md`, `.txt`) both changed in different lines is merged line by
+  line; any other document both changed stays, and the other device's is written next to it, named after that device.
+  A document one removed and the other changed stays, as changed. When the other version already holds this device's
+  last one, the folder simply moves forward to it; otherwise a new version, with both as parents, records the merge.
+  Nothing is written while the folder holds unsaved changes (`changes` lists them) or a document needed from the
+  other version cannot be read here yet.
 - **Sync through a shared folder.** `sync` publishes this device's versions and brings the other devices', through a
   folder they share — a network share, a synced cloud folder. The shared folder holds only what is encrypted and
   signed: it can read none of it, and the devices check everything they take from it ([legix-sync](../legix-sync),

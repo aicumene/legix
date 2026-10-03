@@ -34,6 +34,12 @@ pub enum Error {
     /// There is no version with this id.
     #[error("there is no such version")]
     NoSuchVersion,
+    /// The folder holds changes that are not in a version.
+    #[error("the folder has changes that are not in a version: save a version first")]
+    Unsaved,
+    /// Documents of a version this device cannot read: not synced yet, or erased.
+    #[error("{} documents of that version cannot be read here: not synced yet, or erased", .0.len())]
+    Unreadable(Vec<String>),
     /// The folder has no relay to sync through.
     #[error("no folder to sync through is set")]
     NoRelay,

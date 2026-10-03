@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use legix_folder::{Error, Folder, Keys, Role, Signed};
+use legix_folder::{BroughtIn, Error, Folder, Keys, Role, Signed};
 
 struct Device {
     name: &'static str,
@@ -513,4 +513,153 @@ fn a_shared_folder_that_is_not_connected_is_never_made_anew() {
 
     fs::rename(&away, &shared).unwrap();
     assert_eq!(folder.sync().unwrap().published, None, "nothing new since");
+}
+
+#[test]
+fn devices_bring_in_each_others_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, adas, bo, bos) = two_devices(dir.path());
+    ada.write("Notes.md", "alpha\nbeta\ngamma\n");
+    ada.write("Old memo.txt", "An old memo\n");
+    ada.write("Timetable.docx", "Timetable\n");
+    ada.write("Clauses.docx", "Clauses\n");
+    adas.save("Notes and a memo").unwrap();
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+
+    // Bo's empty folder moves forward to Ada's version: no version of its own.
+    let incoming = bos.incoming().unwrap();
+    assert_eq!(incoming.len(), 1);
+    assert_eq!(incoming[0].principal.as_deref(), Some("ada@example.com"));
+    let first = bos.bring_in(&incoming[0].id, "Ada's notes").unwrap();
+    assert_eq!(
+        first.updated,
+        [
+            "Clauses.docx",
+            "Heads of terms.docx",
+            "Notes.md",
+            "Old memo.txt",
+            "Timetable.docx"
+        ]
+    );
+    assert_eq!(first.version.unwrap().id, incoming[0].id, "forward, no new version");
+    assert_eq!(contents(&bo.work), contents(&ada.work));
+    assert!(bos.incoming().unwrap().is_empty() && bos.changes().unwrap().is_empty());
+    assert_eq!(bos.bring_in(&incoming[0].id, "again").unwrap(), BroughtIn::default());
+
+    // Both change the folder, apart.
+    ada.write("Heads of terms.docx", "Heads of terms, Ada's revision\n");
+    ada.write("Notes.md", "ALPHA\nbeta\ngamma\n");
+    fs::remove_file(ada.work.join("Old memo.txt")).unwrap();
+    ada.write("Timetable.docx", "Timetable, Ada's dates\n");
+    fs::remove_file(ada.work.join("Clauses.docx")).unwrap();
+    adas.save("Ada's revision").unwrap();
+    adas.sync().unwrap();
+    bo.write("Heads of terms.docx", "Heads of terms, Bo's revision\n");
+    bo.write("Notes.md", "alpha\nbeta\nGAMMA\n");
+    bo.write("Review.md", "Clause 4 needs a cap\n");
+    fs::remove_file(bo.work.join("Timetable.docx")).unwrap();
+    bo.write("Clauses.docx", "Clauses, Bo's cap\n");
+    assert_eq!(
+        bos.changes().unwrap(),
+        [
+            "Clauses.docx",
+            "Heads of terms.docx",
+            "Notes.md",
+            "Review.md",
+            "Timetable.docx"
+        ]
+    );
+    bos.sync().unwrap();
+    let incoming = bos.incoming().unwrap();
+    assert_eq!(incoming.len(), 1);
+    assert!(matches!(
+        bos.bring_in(&incoming[0].id, "Ada's revision"),
+        Err(Error::Unsaved)
+    ));
+    bos.save("Bo's revision").unwrap();
+    let brought = bos.bring_in(&incoming[0].id, "Ada's revision").unwrap();
+    assert_eq!(brought.removed, ["Old memo.txt"]);
+    assert_eq!(brought.merged, ["Notes.md"]);
+    assert_eq!(
+        brought.conflicts,
+        [(
+            "Heads of terms.docx".to_owned(),
+            "Heads of terms (ada@example.com).docx".to_owned()
+        )]
+    );
+    assert_eq!(
+        brought.updated,
+        ["Timetable.docx"],
+        "changed there wins over removed here"
+    );
+    let read = |name: &str| fs::read_to_string(bo.work.join(name)).unwrap();
+    assert_eq!(read("Timetable.docx"), "Timetable, Ada's dates\n");
+    assert_eq!(
+        read("Clauses.docx"),
+        "Clauses, Bo's cap\n",
+        "changed here wins over removed there"
+    );
+    assert_eq!(read("Notes.md"), "ALPHA\nbeta\nGAMMA\n");
+    assert_eq!(read("Heads of terms.docx"), "Heads of terms, Bo's revision\n");
+    assert_eq!(
+        read("Heads of terms (ada@example.com).docx"),
+        "Heads of terms, Ada's revision\n"
+    );
+    assert_eq!(read("Review.md"), "Clause 4 needs a cap\n");
+    assert!(!bo.work.join("Old memo.txt").exists());
+    let merge = brought.version.unwrap();
+    assert_eq!(merge.signed, Signed::ByMember);
+    assert_eq!(merge.principal.as_deref(), Some("bo@example.com"));
+    assert!(bos.changes().unwrap().is_empty(), "the folder is as its new version");
+    assert!(bos.save("Nothing").unwrap().is_none());
+
+    // Bo's version holds Ada's: Ada's folder moves forward to it, and both end the same.
+    bos.sync().unwrap();
+    adas.sync().unwrap();
+    let incoming = adas.incoming().unwrap();
+    assert_eq!(incoming.iter().map(|v| v.id).collect::<Vec<_>>(), [merge.id]);
+    let back = adas.bring_in(&merge.id, "Bo's merge").unwrap();
+    assert_eq!(back.version.unwrap().id, merge.id, "forward");
+    assert_eq!(contents(&ada.work), contents(&bo.work));
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+    assert!(adas.incoming().unwrap().is_empty());
+    assert!(bos.incoming().unwrap().is_empty(), "the two have met");
+}
+
+#[test]
+fn the_same_document_saved_on_both_sides_is_no_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, adas, bo, bos) = two_devices(dir.path());
+    bo.write("Agenda.md", "1. Price\n2. Timetable\n");
+    ada.write("Agenda.md", "1. Price\n2. Timetable\n");
+    bos.save("Bo's agenda").unwrap();
+    adas.save("Ada's agenda").unwrap();
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+    let incoming = bos.incoming().unwrap();
+    let brought = bos.bring_in(&incoming[0].id, "Ada's agenda").unwrap();
+    assert!(brought.conflicts.is_empty(), "{brought:?}");
+    assert_eq!(brought.updated, ["Heads of terms.docx"]);
+    assert!(!bo.work.join("Agenda (ada@example.com).md").exists());
+}
+
+#[test]
+fn nothing_is_written_while_a_document_cannot_be_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, adas, bo, bos) = two_devices(dir.path());
+    ada.write("Notes.md", "Notes\n");
+    adas.save("Notes").unwrap();
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+    // The documents have not reached Bo's device.
+    fs::remove_dir_all(bo.state.join("objects")).unwrap();
+    let incoming = bos.incoming().unwrap();
+    match bos.bring_in(&incoming[0].id, "Ada's notes") {
+        Err(Error::Unreadable(paths)) => assert_eq!(paths, ["Heads of terms.docx", "Notes.md"]),
+        other => panic!("{other:?}"),
+    }
+    assert!(contents(&bo.work).is_empty(), "nothing written");
+    assert!(bos.incoming().unwrap().len() == 1, "still to bring in");
 }
