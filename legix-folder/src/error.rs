@@ -40,9 +40,6 @@ pub enum Error {
     /// Documents of a version this device cannot read: not synced yet, or erased.
     #[error("{} documents of that version cannot be read here: not synced yet, or erased", .0.len())]
     Unreadable(Vec<String>),
-    /// The folder has no relay to sync through.
-    #[error("no folder to sync through is set")]
-    NoRelay,
     /// The shared folder to sync through is not there: not connected, or moved.
     #[error("the shared folder {0} is not there: connect it, then sync again")]
     RelayMissing(PathBuf),

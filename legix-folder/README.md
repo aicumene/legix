@@ -23,6 +23,13 @@ apart from the documents:
   folder they share — a network share, a synced cloud folder. The shared folder holds only what is encrypted and
   signed: it can read none of it, and the devices check everything they take from it ([legix-sync](../legix-sync),
   [legix-p2p](../legix-p2p)). One that is not connected is never made anew where it was: sync waits for it.
+- **Sync directly** (feature `p2p`). Devices also sync device to device over iroh — on one network or across the
+  internet, through NAT and, failing that, through relays that carry only ciphertext. `Keys::endpoint_key` gives the
+  device's endpoint key, derived from its signing key; `Folder::peer` is the device's part for the application's
+  endpoint (`Peers` answers for every history on it), and `Folder::sync_direct` syncs with every device the group's log
+  shows, and with those this device was told of (`Folder::add_peer` — the endpoint in an invitation). A device that
+  asked to join without a shared folder knocks: its request reaches the admins of the devices it reaches, and once
+  added, its next sync brings the history.
 - **Members.** The group decides who reads and who writes ([legix-members](../legix-members)). `found` starts a group
   with this device as its admin, and `join` asks to join one. An admin compares the request's fingerprint with the one
   the new device shows and `admit`s it as a writer or a reader; `remove` takes a device out, and the group moves to a
@@ -66,6 +73,6 @@ re-reading unchanged documents. The formats of everything shared are those of th
 FORMAT.md files; the settings and the index are local to the device and versioned.
 
 The API follows semantic versioning. The crate needs Rust 1.88: it syncs through shared folders with `legix-p2p`'s
-`replicate`, without iroh.
+`replicate`, without iroh; with the feature `p2p` it needs Rust 1.91, as iroh does.
 
 The cryptography has not yet had an independent audit.

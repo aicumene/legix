@@ -38,16 +38,21 @@ use legix::{
 };
 use legix_crypt::{DirKeyStore, Documents, ObjectStore, Pointer, Status};
 use legix_sign::{AllowedSigners, Trust, repository::RepositoryExt, ssh_key::PrivateKey};
-use legix_sync::{DirRelay, Relay, Replica};
+use legix_sync::{Relay, Replica};
 
 pub use error::Error;
 pub use legix::ObjectId;
 pub use legix_crypt::StoreKey;
 pub use legix_members::{GroupId, Identity, JoinRequest, Member, Members, Role};
 pub use legix_sign::ssh_key;
-pub use legix_sync::DeviceId;
+pub use legix_sync::{DeviceId, DirRelay};
 pub use settings::Settings;
 pub use zeroize::Zeroizing;
+#[cfg(feature = "p2p")]
+pub use {
+    iroh,
+    legix_p2p::{ALPN, Peer, Peers},
+};
 
 use error::repository;
 use walk::Known;
@@ -97,6 +102,21 @@ impl Keys {
             .public_key()
             .fingerprint(ssh_key::HashAlg::Sha256)
             .to_string()
+    }
+
+    /// The secret key of this device's endpoint for direct sync, derived from its signing key: the same on every
+    /// start, with nothing more to keep, and no use for signing.
+    pub fn endpoint_key(&self) -> Result<Zeroizing<[u8; 32]>, Error> {
+        let keypair = self
+            .signing
+            .key_data()
+            .ed25519()
+            .ok_or(Error::Format("the signing key is not an Ed25519 key"))?;
+        let seed = Zeroizing::new(keypair.private.to_bytes());
+        Ok(Zeroizing::new(blake3::derive_key(
+            "legix-folder 2026-10-03 the endpoint key of a device",
+            seed.as_slice(),
+        )))
     }
 
     /// The keys as one secret, for one item of the keychain: `legix-folder-keys/1`, the identity and the store key in
@@ -240,6 +260,29 @@ pub struct BroughtIn {
     pub conflicts: Vec<(String, String)>,
 }
 
+/// What [`Folder::sync_direct`] did.
+#[cfg(feature = "p2p")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Direct {
+    /// The devices dialed, each with what came of it.
+    pub reached: Vec<Reached>,
+    /// What the folder took from its mirror after the devices synced.
+    pub synced: Synced,
+}
+
+/// One device dialed by [`Folder::sync_direct`].
+#[cfg(feature = "p2p")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Reached {
+    /// Its endpoint.
+    pub endpoint: [u8; 32],
+    /// What the sync gave and took — or `knocked`: this device asked to join, and the other kept the request — or why
+    /// it failed.
+    pub outcome: Result<legix_p2p::Synced, String>,
+}
+
 /// What bringing in a version does to one document.
 enum Step {
     /// Write the other version's document, with its pointer.
@@ -292,25 +335,25 @@ impl Folder {
         Ok(folder)
     }
 
-    /// Ask to join the group `group`, which syncs through `relay`, keeping the history of `work` in `state`. The
-    /// request waits on the relay for an admin; once one adds this device and it syncs, it reads the group's history.
+    /// Ask to join the group `group`, keeping the history of `work` in `state`. With `relay`, the folder the group
+    /// syncs through, the request waits there for an admin; without one, it reaches the devices this one syncs with
+    /// directly ([`Folder::add_peer`]). Once an admin adds this device and it syncs, it reads the group's history.
     pub fn join(
         state: impl Into<PathBuf>,
         work: impl Into<PathBuf>,
         keys: Keys,
         principal: &str,
         group: GroupId,
-        relay: impl Into<PathBuf>,
+        relay: Option<PathBuf>,
     ) -> Result<(Self, JoinRequest), Error> {
         let request = JoinRequest::new(&keys.signing, &keys.identity, principal)?;
-        let relay = relay.into();
-        if !relay.is_dir() {
-            return Err(Error::RelayMissing(relay));
+        if let Some(relay) = relay.as_ref().filter(|relay| !relay.is_dir()) {
+            return Err(Error::RelayMissing(relay.clone()));
         }
         let settings = Settings {
             work: work.into(),
             group,
-            relay: Some(relay),
+            relay,
             principal: principal.to_owned(),
         };
         let folder = Self::create(state.into(), settings, keys)?;
@@ -751,19 +794,22 @@ impl Folder {
         Ok(restored)
     }
 
-    /// Sync through the shared folder: bring what the other devices published — the group's log, their versions,
-    /// their documents — and publish this device's versions. The shared folder has to be there.
+    /// Sync with this device's mirror of the group — and the mirror with the shared folder, when there is one: bring
+    /// what the other devices published — the group's log, their versions, their documents — and publish this device's
+    /// versions. A shared folder that is set has to be there.
     pub fn sync(&self) -> Result<Synced, Error> {
-        let relay = self.relay()?.ok_or(Error::NoRelay)?;
+        let relay = self.relay()?;
         let group = self.settings.group;
         let mut synced = Synced::default();
-        let into_mirror = legix_p2p::replicate(&relay, &self.mirror, &group, &self.keys.identity)?;
-        synced.refused.extend(
-            into_mirror
-                .refused
-                .iter()
-                .map(|refusal| format!("{}: {}", refusal.item, refusal.reason)),
-        );
+        if let Some(relay) = &relay {
+            let into_mirror = legix_p2p::replicate(relay, &self.mirror, &group, &self.keys.identity)?;
+            synced.refused.extend(
+                into_mirror
+                    .refused
+                    .iter()
+                    .map(|refusal| format!("{}: {}", refusal.item, refusal.reason)),
+            );
+        }
 
         let members = match self.members() {
             Ok(members) => members,
@@ -788,14 +834,63 @@ impl Folder {
             }
         }
 
-        let into_relay = legix_p2p::replicate(&self.mirror, &relay, &group, &self.keys.identity)?;
-        synced.refused.extend(
-            into_relay
-                .refused
-                .iter()
-                .map(|refusal| format!("{}: {}", refusal.item, refusal.reason)),
-        );
+        if let Some(relay) = &relay {
+            let into_relay = legix_p2p::replicate(&self.mirror, relay, &group, &self.keys.identity)?;
+            synced.refused.extend(
+                into_relay
+                    .refused
+                    .iter()
+                    .map(|refusal| format!("{}: {}", refusal.item, refusal.reason)),
+            );
+        }
         Ok(synced)
+    }
+
+    /// Remember `endpoint` — the endpoint of another device of the group, from an invitation — to sync with directly,
+    /// besides the members whose endpoints the group's log shows.
+    pub fn add_peer(&self, endpoint: &[u8; 32]) -> Result<(), Error> {
+        let mut known = self.known_peers();
+        if !known.contains(endpoint) {
+            known.push(*endpoint);
+            let mut text = String::new();
+            for peer in &known {
+                text.push_str(&hex(peer));
+                text.push('\n');
+            }
+            settings::write_atomically(&self.state.join("peers"), text.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// The endpoints to sync with directly: the other members', as their certificates in the mirror say, then the ones
+    /// this device was told of.
+    pub fn endpoints(&self) -> Result<Vec<[u8; 32]>, Error> {
+        let mut endpoints = Vec::new();
+        if let Ok(members) = self.members() {
+            for bytes in self.mirror.endpoints()? {
+                if let Ok(certificate) = legix_p2p::EndpointCert::parse(&bytes)
+                    && certificate.is_member(&members)
+                    && certificate.device() != self.device()
+                    && !endpoints.contains(&certificate.endpoint())
+                {
+                    endpoints.push(certificate.endpoint());
+                }
+            }
+        }
+        for known in self.known_peers() {
+            if !endpoints.contains(&known) {
+                endpoints.push(known);
+            }
+        }
+        Ok(endpoints)
+    }
+
+    fn known_peers(&self) -> Vec<[u8; 32]> {
+        fs::read_to_string(self.state.join("peers"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| unhex32(line.trim()))
+            .collect()
     }
 
     /// The devices that asked to join and are not members: their requests, for an admin to check — compare the
@@ -1011,6 +1106,84 @@ impl Folder {
         files.sort();
         Ok(files)
     }
+}
+
+#[cfg(feature = "p2p")]
+impl Folder {
+    /// This device's part in syncing directly through its endpoint `endpoint` — whose secret key is
+    /// [`Keys::endpoint_key`]: its certificate goes into the mirror, for the other devices to find.
+    pub fn peer(&self, endpoint: &[u8; 32]) -> Result<Peer<DirRelay>, Error> {
+        let certificate = legix_p2p::EndpointCert::new(&self.keys.signing, endpoint)?;
+        Ok(Peer::new(
+            DirRelay::new(self.state.join("mirror")),
+            self.settings.group,
+            self.keys.identity.clone(),
+            certificate,
+        )?)
+    }
+
+    /// Sync directly with the devices of the group that `endpoint` reaches ([`Folder::endpoints`]), each given `wait`:
+    /// this device's versions go into its mirror first, the mirrors sync, then what came is pulled. A device that asked
+    /// to join knocks: its request reaches the admins of the devices it reaches. One that learns in the sync that it
+    /// has been added — and so gave nothing yet — syncs once more, to give the others its own.
+    pub async fn sync_direct(
+        &self,
+        endpoint: &iroh::Endpoint,
+        peer: &Peer<DirRelay>,
+        wait: std::time::Duration,
+    ) -> Result<Direct, Error> {
+        let before = self.sync()?;
+        let mut reached = self.dial_all(endpoint, peer, wait).await?;
+        let mut synced = self.sync()?;
+        if synced.member && !before.member {
+            reached = self.dial_all(endpoint, peer, wait).await?;
+            synced = self.sync()?;
+        }
+        Ok(Direct { reached, synced })
+    }
+
+    async fn dial_all(
+        &self,
+        endpoint: &iroh::Endpoint,
+        peer: &Peer<DirRelay>,
+        wait: std::time::Duration,
+    ) -> Result<Vec<Reached>, Error> {
+        let mut reached = Vec::new();
+        for id in self.endpoints()? {
+            let Ok(remote) = iroh::EndpointId::from_bytes(&id) else {
+                continue;
+            };
+            if remote == endpoint.id() {
+                continue;
+            }
+            let outcome = match tokio::time::timeout(wait, peer.sync_with(endpoint, remote)).await {
+                Ok(Ok(synced)) => Ok(synced),
+                Ok(Err(err)) => Err(err.to_string()),
+                Err(_) => Err("it did not answer in time".to_owned()),
+            };
+            reached.push(Reached { endpoint: id, outcome });
+        }
+        Ok(reached)
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
+}
+
+fn unhex32(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut bytes = [0; 32];
+    for (byte, pair) in bytes.iter_mut().zip(text.as_bytes().chunks(2)) {
+        *byte = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(bytes)
 }
 
 /// Whether a document is text that merges line by line.

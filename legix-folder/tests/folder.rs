@@ -176,7 +176,7 @@ fn devices_share_their_versions_through_a_shared_folder() {
         Keys::generate("bo").unwrap(),
         &bo.principal(),
         adas.settings().group,
-        &shared,
+        Some(shared.clone()),
     )
     .unwrap();
     let synced = bos.sync().unwrap();
@@ -267,7 +267,7 @@ fn two_devices(root: &Path) -> (Device, Folder, Device, Folder) {
         Keys::generate("bo").unwrap(),
         &bo.principal(),
         adas.settings().group,
-        &shared,
+        Some(shared.clone()),
     )
     .unwrap();
     adas.sync().unwrap();
@@ -304,7 +304,7 @@ fn only_admins_change_the_membership() {
         Keys::generate("cy").unwrap(),
         &cy.principal(),
         adas.settings().group,
-        bos.settings().relay.clone().unwrap(),
+        bos.settings().relay.clone(),
     )
     .unwrap();
     assert!(matches!(
@@ -500,7 +500,7 @@ fn a_shared_folder_that_is_not_connected_is_never_made_anew() {
             Keys::generate("bo").unwrap(),
             &bo.principal(),
             folder.settings().group,
-            &shared
+            Some(shared.clone())
         ),
         Err(Error::RelayMissing(_))
     ));
