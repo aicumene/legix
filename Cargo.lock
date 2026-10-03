@@ -1029,6 +1029,7 @@ dependencies = [
  "fiat-crypto",
  "rustc_version",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -3254,6 +3255,25 @@ dependencies = [
  "legix-error",
  "legix-testtools",
  "serde",
+]
+
+[[package]]
+name = "legix-members"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+ "hkdf",
+ "legix",
+ "legix-crypt",
+ "legix-sign",
+ "legix-sync",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.18",
+ "zeroize",
 ]
 
 [[package]]

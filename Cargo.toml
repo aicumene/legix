@@ -304,6 +304,7 @@ members = [
     "legix-sign",
     "legix-crypt",
     "legix-sync",
+    "legix-members",
 ]
 
 [workspace.dependencies]

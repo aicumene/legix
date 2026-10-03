@@ -1,0 +1,32 @@
+lints.workspace = true
+
+[package]
+name = "legix-members"
+version = "0.1.0"
+description = "Membership for leGix: a signed log of who may read and write, group keys sealed for every member, rotation and revocation"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+authors = ["Ivan Menshikov <menshivan@gmail.com>"]
+edition = "2024"
+rust-version = "1.88"
+keywords = ["git", "membership", "key-rotation", "end-to-end", "legix"]
+categories = ["cryptography", "development-tools"]
+include = ["src/**/*", "README.md", "FORMAT.md", "LICENSE-*"]
+
+[dependencies]
+legix-sync = { version = "^0.1.0", path = "../legix-sync" }
+legix-sign = { version = "^0.1.0", path = "../legix-sign", default-features = false }
+
+blake3 = "1.8.7"
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+curve25519-dalek = "4.1.3"
+getrandom = { version = "0.3.4", features = ["std"] }
+hkdf = "0.13.0"
+sha2 = { version = "0.11.0", default-features = false }
+tempfile = "3.26.0"
+thiserror = "2.0.18"
+zeroize = { version = "1.9.0", features = ["zeroize_derive"] }
+
+[dev-dependencies]
+legix = { version = "^0.88.0", path = "../legix", features = ["sha256"] }
+legix-crypt = { version = "^0.1.0", path = "../legix-crypt" }

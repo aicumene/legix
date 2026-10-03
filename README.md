@@ -21,8 +21,8 @@ reads leGix history, and leGix reads theirs.
   right-to-erasure without rewriting history.
 - **Built to embed.** A library rather than a program to install. It runs inside desktop, mobile and server
   applications, offline first, on macOS, Linux and Windows.
-- **Audit by construction.** Signed commits answer who changed what and when. A signed membership log, still to
-  come, will answer under whose authority.
+- **Audit by construction.** Signed commits answer who changed what and when. A signed membership log answers under
+  whose authority: who added each device, with which role, and when it was removed.
 
 leGix serves regulated industries — legal, finance, healthcare, the public sector — and products that version
 documents for their users. It also serves teams that work offline or across sites without shared
@@ -36,7 +36,7 @@ infrastructure.
 | Signed history: sign and verify commits in git's SSH format, in process; allowed-signers trust with validity windows; SHA-1 and SHA-256 repositories | Available — [`legix-sign`](legix-sign) |
 | Encrypted documents: a key per document, content-addressed objects any relay can check, erasure by destroying the key; formats specified byte by byte | Available — [`legix-crypt`](legix-crypt) |
 | Sync without a trusted server: encrypted, signed, append-only bundles per device through any relay; standard git bundles inside; documents and their erasure travel too | Available — [`legix-sync`](legix-sync) |
-| Membership and key rotation: a signed log of who may read and write | Planned |
+| Membership and key rotation: a signed log of who may read and write; group keys sealed for every device; a new key when a device leaves; revocation without trusting clocks | Available — [`legix-members`](legix-members) |
 | Device-to-device sync on the local network and through NAT | Planned |
 
 Signed history:
@@ -73,10 +73,12 @@ documents.erase(&pointer.oid)?; // destroys the key: the document cannot be read
 Sync through a relay:
 
 ```rust
+use legix_members::Members;
 use legix_sync::{DirRelay, Replica};
 
 let relay = DirRelay::new("/Volumes/Shared/matter-2041"); // any folder the devices share
-let replica = Replica::new(&repo, &key, &group_key, &members, &relay, &documents);
+let members = Members::load(&relay, &group_id, &identity, &repo.git_dir().join("legix/members.pin"))?;
+let replica = Replica::new(&repo, &key, &members, &relay, &documents);
 replica.push()?; // this device's branches, tags and documents, in a signed, encrypted bundle
 replica.pull()?; // the other devices' bundles, checked and applied under refs/legix/devices/
 ```
@@ -85,7 +87,7 @@ replica.pull()?; // the other devices' bundles, checked and applied under refs/l
 
 Applications build on leGix for years, so its API is held to a contract:
 
-- **leGix's own crates** (`legix-sign`, `legix-crypt` and `legix-sync` today; the membership crate as it lands) work on
+- **leGix's own crates** (`legix-sign`, `legix-crypt`, `legix-sync` and `legix-members`) work on
   git's stable formats, on formats of their own that are specified and versioned, and on their own types. They follow
   semantic versioning strictly.
 - **Deprecation before removal.** An API is deprecated for at least one minor release, with its replacement
