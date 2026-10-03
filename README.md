@@ -15,7 +15,8 @@ reads leGix history, and leGix reads theirs.
   hardware. Trust comes from an allowed-signers list that is checked at commit time, so rotating a key never
   invalidates history it signed while it was valid. Signatures verify with stock git.
 - **No server to trust.** Every device holds the full history. Devices sync through encrypted, signed, append-only
-  bundles that any relay can keep and forward, in the cloud or on premises; a shared folder works as one.
+  bundles that any relay can keep and forward, in the cloud or on premises — or directly, device to device, on the
+  local network and through NAT.
 - **Encryption you can delete.** Documents are kept outside the history, each encrypted under a key of its own, and
   the history holds a pointer. Destroying the key erases the document wherever its copies went — retention and
   right-to-erasure without rewriting history.
@@ -37,7 +38,7 @@ infrastructure.
 | Encrypted documents: a key per document, content-addressed objects any relay can check, erasure by destroying the key; formats specified byte by byte | Available — [`legix-crypt`](legix-crypt) |
 | Sync without a trusted server: encrypted, signed, append-only bundles per device through any relay; standard git bundles inside; documents and their erasure travel too | Available — [`legix-sync`](legix-sync) |
 | Membership and key rotation: a signed log of who may read and write; group keys sealed for every device; a new key when a device leaves; revocation without trusting clocks | Available — [`legix-members`](legix-members) |
-| Device-to-device sync on the local network and through NAT | Planned |
+| Device-to-device sync on the local network and through NAT, over iroh: members only, every item checked before it is kept, devices carrying each other's bundles | Available — [`legix-p2p`](legix-p2p) |
 
 Signed history:
 
@@ -83,11 +84,24 @@ replica.push()?; // this device's branches, tags and documents, in a signed, enc
 replica.pull()?; // the other devices' bundles, checked and applied under refs/legix/devices/
 ```
 
+Device to device, over iroh — each device's replica works on its own mirror, and devices sync their mirrors:
+
+```rust
+use legix_p2p::{ALPN, EndpointCert, Peer};
+
+let certificate = EndpointCert::new(&key, endpoint.id())?; // ties the iroh endpoint to the device
+let peer = Arc::new(Peer::new(mirror, group_id, identity, certificate)?);
+let router = iroh::protocol::Router::builder(endpoint.clone()).accept(ALPN, peer.clone()).spawn();
+for (_, other) in peer.peers()? {
+    peer.sync_with(&endpoint, other).await?; // members only; every item is checked before it is kept
+}
+```
+
 ## Stable API
 
 Applications build on leGix for years, so its API is held to a contract:
 
-- **leGix's own crates** (`legix-sign`, `legix-crypt`, `legix-sync` and `legix-members`) work on
+- **leGix's own crates** (`legix-sign`, `legix-crypt`, `legix-sync`, `legix-members` and `legix-p2p`) work on
   git's stable formats, on formats of their own that are specified and versioned, and on their own types. They follow
   semantic versioning strictly.
 - **Deprecation before removal.** An API is deprecated for at least one minor release, with its replacement
@@ -135,7 +149,8 @@ cargo test --workspace
 ```
 
 The workspace builds with Rust 1.98 (`rust-toolchain.toml`), which was stable when gitoxide v0.59.0 was
-released. The `legix` library keeps gitoxide's minimum supported Rust version, 1.88. Many tests create fixture
+released. The `legix` library keeps gitoxide's minimum supported Rust version, 1.88; `legix-p2p` needs 1.91, as
+iroh does. Many tests create fixture
 repositories with the system's `git` and `bash`. The signing tests also need OpenSSH's `ssh-keygen`.
 
 ## License
