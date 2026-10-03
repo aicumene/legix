@@ -242,6 +242,24 @@ pub struct Synced {
     pub refused: Vec<String>,
 }
 
+impl Synced {
+    /// What this sync and a `later` one did together: what either brought or refused, and where the later one left
+    /// off.
+    #[cfg(feature = "p2p")]
+    fn followed_by(mut self, later: Synced) -> Synced {
+        self.member = later.member;
+        self.published = later.published.or(self.published);
+        self.applied.extend(later.applied);
+        self.waiting = later.waiting;
+        for refused in later.refused {
+            if !self.refused.contains(&refused) {
+                self.refused.push(refused);
+            }
+        }
+        self
+    }
+}
+
 /// What [`Folder::bring_in`] did to the documents.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -410,6 +428,17 @@ impl Folder {
             return Err(Error::RelayMissing(relay.clone()));
         }
         self.settings.relay = relay;
+        self.settings.write(&self.state.join("folder"))
+    }
+
+    /// The documents are at `work` now: the folder was moved, the disk it is on is mounted at another place, or the
+    /// application's own folder moved — as an app's container does on iOS when the app is updated. The history goes
+    /// on as it was; the folder has to be there.
+    pub fn set_work(&mut self, work: PathBuf) -> Result<(), Error> {
+        if !work.is_dir() {
+            return Err(Error::WorkMissing(work));
+        }
+        self.settings.work = work;
         self.settings.write(&self.state.join("folder"))
     }
 
@@ -1133,11 +1162,12 @@ impl Folder {
         wait: std::time::Duration,
     ) -> Result<Direct, Error> {
         let before = self.sync()?;
+        let was_member = before.member;
         let mut reached = self.dial_all(endpoint, peer, wait).await?;
-        let mut synced = self.sync()?;
-        if synced.member && !before.member {
+        let mut synced = before.followed_by(self.sync()?);
+        if synced.member && !was_member {
             reached = self.dial_all(endpoint, peer, wait).await?;
-            synced = self.sync()?;
+            synced = synced.followed_by(self.sync()?);
         }
         Ok(Direct { reached, synced })
     }

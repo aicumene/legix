@@ -473,6 +473,39 @@ fn keys_keep_as_one_secret() {
 }
 
 #[test]
+fn a_folder_that_moved_keeps_its_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let ada = Device::new(dir.path(), "ada");
+    ada.write("Heads of terms.docx", "Heads of terms\n");
+    let keys = Keys::generate("ada").unwrap();
+    let folder = Folder::found(&ada.state, &ada.work, keys.clone(), &ada.principal()).unwrap();
+    folder.save("Heads of terms").unwrap();
+
+    let moved = dir.path().join("Moved").join("Matter");
+    fs::create_dir_all(moved.parent().unwrap()).unwrap();
+    fs::rename(&ada.work, &moved).unwrap();
+    let mut folder = Folder::open(&ada.state, keys).unwrap();
+    assert!(
+        folder.save("Nothing to see").is_err(),
+        "a folder that is not there is not a folder without documents"
+    );
+    assert!(matches!(
+        folder.set_work(dir.path().join("Nowhere")),
+        Err(Error::WorkMissing(_))
+    ));
+
+    folder.set_work(moved.clone()).unwrap();
+    assert_eq!(folder.settings().work, moved);
+    assert!(
+        folder.changes().unwrap().is_empty(),
+        "the same documents, at the new place"
+    );
+    fs::write(moved.join("Review.md"), "Clause 4 needs a cap\n").unwrap();
+    folder.save("Review").unwrap().unwrap();
+    assert_eq!(folder.versions().unwrap().len(), 2);
+}
+
+#[test]
 fn a_shared_folder_that_is_not_connected_is_never_made_anew() {
     let dir = tempfile::tempdir().unwrap();
     let shared = dir.path().join("Shared");

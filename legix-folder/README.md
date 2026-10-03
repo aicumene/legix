@@ -8,6 +8,9 @@ apart from the documents:
 - **Versions.** `save` takes a version of the folder. Every document that changed since the last version is encrypted
   under a key of its own ([legix-crypt](../legix-crypt)); the version holds only pointers to the encrypted documents,
   and the device signs it ([legix-sign](../legix-sign)). A document that did not change is not encrypted again.
+- **Moved.** A folder that moved — to another disk, or with an app's container on iOS when the app is updated —
+  keeps its history: `set_work` tells the history where its documents are now. A folder that is not there is never
+  saved as one without documents.
 - **Restore.** `versions` lists the versions of every device of the group, newest first, each with whether a member
   signed it. `restore` writes a version's documents into a new folder or one without documents, never over a file
   and never outside the folder, whatever the version holds.

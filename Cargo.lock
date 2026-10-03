@@ -3612,6 +3612,7 @@ name = "legix-folder"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "iroh",
  "legix",
  "legix-crypt",
  "legix-members",
@@ -3620,6 +3621,7 @@ dependencies = [
  "legix-sync",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "zeroize",
 ]
 

@@ -138,6 +138,10 @@ async fn devices_sync_their_folders_directly_from_an_invitation() {
     adas.admit(&request, Role::Writer).unwrap();
     let synced = bo_online.sync(&bos).await;
     assert!(synced.synced.member);
+    assert!(
+        synced.synced.applied.contains(&adas.device()),
+        "what came is told, though a second round followed: {synced:?}"
+    );
     let incoming = bos.incoming().unwrap();
     assert_eq!(incoming.len(), 1);
     assert_eq!(
