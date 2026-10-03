@@ -573,6 +573,15 @@ impl Folder {
         Ok(versions)
     }
 
+    /// The documents in the folder now, by their paths in it, as [`Folder::save`] takes them — without the notes.
+    pub fn documents(&self) -> Result<Vec<String>, Error> {
+        Ok(walk::documents(&self.settings.work)?
+            .into_iter()
+            .map(|(name, _)| name)
+            .filter(|name| !is_note(name))
+            .collect())
+    }
+
     /// The documents added, changed or removed since the last version, by their paths in the folder.
     pub fn changes(&self) -> Result<Vec<String>, Error> {
         let known = walk::read_index(&self.state.join("index"));
