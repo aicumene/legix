@@ -6,7 +6,7 @@ use std::{
     process::Command,
 };
 
-use legix_folder::{BroughtIn, Error, Folder, Keys, Role, Signed};
+use legix_folder::{BroughtIn, Error, Folder, Keys, Role, Signed, is_note};
 
 struct Device {
     name: &'static str,
@@ -695,4 +695,47 @@ fn nothing_is_written_while_a_document_cannot_be_read() {
     }
     assert!(contents(&bo.work).is_empty(), "nothing written");
     assert!(bos.incoming().unwrap().len() == 1, "still to bring in");
+}
+
+#[test]
+fn an_applications_notes_go_with_the_versions_and_are_no_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let (ada, adas, bo, bos) = two_devices(dir.path());
+    ada.write("Contract.docx", "The contract\n");
+    fs::create_dir_all(ada.work.join(".legix/text")).unwrap();
+    ada.write(".legix/text/Contract.docx.md", "# The contract\n");
+    // Hidden files stay out — in the notes, and anywhere else, a folder named like the notes too.
+    ada.write(".legix/.secret", "not kept\n");
+    fs::create_dir_all(ada.work.join("Drafts/.legix")).unwrap();
+    ada.write("Drafts/.legix/draft.md", "not kept\n");
+    let saved = adas.save("A contract and its reading copy").unwrap().unwrap();
+    assert_eq!(
+        saved.documents, 2,
+        "the contract and Heads of terms: notes are no documents"
+    );
+    assert!(is_note(".legix/text/Contract.docx.md") && !is_note("Contract.docx") && !is_note(".legixx/a"));
+
+    let copy = dir.path().join("Copy");
+    let restored = adas.restore(&saved.id, &copy).unwrap();
+    assert!(
+        restored.written.contains(&".legix/text/Contract.docx.md".to_owned()),
+        "{restored:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(copy.join(".legix/text/Contract.docx.md")).unwrap(),
+        "# The contract\n"
+    );
+    assert!(!copy.join(".legix/.secret").exists() && !copy.join("Drafts").exists());
+
+    // The notes reach the other device with the documents, and a change to one is a change.
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+    let incoming = bos.incoming().unwrap();
+    bos.bring_in(&incoming[0].id, "Ada's contract").unwrap();
+    assert_eq!(
+        fs::read_to_string(bo.work.join(".legix/text/Contract.docx.md")).unwrap(),
+        "# The contract\n"
+    );
+    ada.write(".legix/text/Contract.docx.md", "# The contract, revised\n");
+    assert_eq!(adas.changes().unwrap(), [".legix/text/Contract.docx.md"]);
 }

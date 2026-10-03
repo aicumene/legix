@@ -66,6 +66,17 @@ pub fn is_document(name: &str) -> bool {
     !walk::skipped(name)
 }
 
+/// The folder at the top of a folder of documents where an application keeps its notes about them — a reading copy, a
+/// comment: versioned and synced with the documents, encrypted and signed as they are, and hidden from the person by
+/// its dot. What it holds is no document: [`Version::documents`] leaves it out. Names in it follow the rules of
+/// documents' names — no hidden file, no lock file — and a folder of that name anywhere but at the top is hidden.
+pub const NOTES: &str = ".legix";
+
+/// Whether `path`, in a folder, is one of the application's notes ([`NOTES`]) rather than a document.
+pub fn is_note(path: &str) -> bool {
+    path.strip_prefix(NOTES).is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// The first line of [`Keys::to_secret`].
 const KEYS: &str = "legix-folder-keys/1";
 
@@ -1101,13 +1112,14 @@ impl Folder {
             time,
             message,
             signed,
-            documents: self.files(tree)?.len(),
+            documents: self.files(tree)?.iter().filter(|(name, _)| !is_note(name)).count(),
         })
     }
 
-    /// The documents of a tree: their paths and their blobs. A name that could point outside a folder — `..`, `.`,
-    /// one with a separator, a drive — is left out, and so is one that is no document — hidden, a lock file, the
-    /// system's own: a version holds what `save` takes, whoever wrote it.
+    /// The documents of a tree, and the notes about them: their paths and their blobs. A name that could point outside a
+    /// folder — `..`, `.`, one with a separator, a drive — is left out, and so is one that is no document — hidden, a
+    /// lock file, the system's own — except the folder of notes at the top: a version holds what `save` takes, whoever
+    /// wrote it.
     fn files(&self, tree: ObjectId) -> Result<Vec<(String, ObjectId)>, Error> {
         let mut files = Vec::new();
         let mut pending = vec![(String::new(), tree)];
@@ -1121,7 +1133,8 @@ impl Folder {
                 let mut components = Path::new(name).components();
                 let plain = matches!(components.next(), Some(Component::Normal(one)) if one == name)
                     && components.next().is_none();
-                if !plain || name.contains(['/', '\\', '\0']) || !is_document(name) {
+                let notes = prefix.is_empty() && name == NOTES && entry.mode().is_tree();
+                if !plain || name.contains(['/', '\\', '\0']) || !(is_document(name) || notes) {
                     continue;
                 }
                 let path = format!("{prefix}{name}");

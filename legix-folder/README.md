@@ -11,6 +11,9 @@ apart from the documents:
 - **Moved.** A folder that moved — to another disk, or with an app's container on iOS when the app is updated —
   keeps its history: `set_work` tells the history where its documents are now. A folder that is not there is never
   saved as one without documents.
+- **Notes.** An application keeps its notes about the documents — a reading copy, a comment — in `.legix/` at the
+  top of the folder: versioned, synced, encrypted and signed with the documents, hidden from the person, and never
+  counted as a document (`is_note` tells them apart). Every other hidden file stays out of the history.
 - **Restore.** `versions` lists the versions of every device of the group, newest first, each with whether a member
   signed it. `restore` writes a version's documents into a new folder or one without documents, never over a file
   and never outside the folder, whatever the version holds.

@@ -18,10 +18,16 @@ pub(crate) fn skipped(name: &str) -> bool {
     name.starts_with('.') || name.starts_with("~$") || matches!(name, "Thumbs.db" | "desktop.ini" | "Icon\r")
 }
 
-/// The documents of `work`: their paths relative to it, with `/` between folders, and where they are.
+/// The documents of `work`, and the application's notes about them ([`crate::NOTES`]): their paths relative to it,
+/// with `/` between folders, and where they are.
 pub(crate) fn documents(work: &Path) -> Result<Vec<(String, PathBuf)>, Error> {
     let mut found = Vec::new();
     walk(work, "", &mut found)?;
+    // The notes are a folder at the top — never a link to one — and what it holds is taken as documents are.
+    let notes = work.join(crate::NOTES);
+    if fs::symlink_metadata(&notes).is_ok_and(|meta| meta.is_dir()) {
+        walk(&notes, &format!("{}/", crate::NOTES), &mut found)?;
+    }
     found.sort();
     Ok(found)
 }
