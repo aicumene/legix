@@ -303,6 +303,7 @@ members = [
     "legix-shallow",
     "legix-sign",
     "legix-crypt",
+    "legix-sync",
 ]
 
 [workspace.dependencies]

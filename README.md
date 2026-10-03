@@ -2,7 +2,7 @@
 
 **Distributed git for the enterprise.** leGix is version control for organizations that cannot hand their history
 to a server they have to trust. Every commit is signed by the device or person that made it. Documents are encrypted,
-each under a key of its own, and devices will sync with each other through relays that cannot read what they carry.
+each under a key of its own, and devices sync with each other through relays that cannot read what they carry.
 leGix is written in Rust and embeds in your product as a library. It needs no git installation and offers a
 stable API.
 
@@ -14,8 +14,8 @@ reads leGix history, and leGix reads theirs.
 - **Signed history, verified in process.** Commits are signed with SSH keys that live in memory, a keychain or
   hardware. Trust comes from an allowed-signers list that is checked at commit time, so rotating a key never
   invalidates history it signed while it was valid. Signatures verify with stock git.
-- **No server to trust.** Every device holds the full history. Sync will go through encrypted, signed,
-  append-only bundles that any relay can forward, in the cloud or on premises.
+- **No server to trust.** Every device holds the full history. Devices sync through encrypted, signed, append-only
+  bundles that any relay can keep and forward, in the cloud or on premises; a shared folder works as one.
 - **Encryption you can delete.** Documents are kept outside the history, each encrypted under a key of its own, and
   the history holds a pointer. Destroying the key erases the document wherever its copies went — retention and
   right-to-erasure without rewriting history.
@@ -35,7 +35,7 @@ infrastructure.
 | git engine: repositories, objects, references, history, diff, merge, network | Available — `legix`, `legix-*` |
 | Signed history: sign and verify commits in git's SSH format, in process; allowed-signers trust with validity windows; SHA-1 and SHA-256 repositories | Available — [`legix-sign`](legix-sign) |
 | Encrypted documents: a key per document, content-addressed objects any relay can check, erasure by destroying the key; formats specified byte by byte | Available — [`legix-crypt`](legix-crypt) |
-| Sync without a trusted server: encrypted, signed, append-only bundles through any relay | Planned |
+| Sync without a trusted server: encrypted, signed, append-only bundles per device through any relay; standard git bundles inside; documents and their erasure travel too | Available — [`legix-sync`](legix-sync) |
 | Membership and key rotation: a signed log of who may read and write | Planned |
 | Device-to-device sync on the local network and through NAT | Planned |
 
@@ -70,11 +70,22 @@ let blob = repo.write_blob(pointer.to_string())?; // the history holds the point
 documents.erase(&pointer.oid)?; // destroys the key: the document cannot be read, the history is unchanged
 ```
 
+Sync through a relay:
+
+```rust
+use legix_sync::{DirRelay, Replica};
+
+let relay = DirRelay::new("/Volumes/Shared/matter-2041"); // any folder the devices share
+let replica = Replica::new(&repo, &key, &group_key, &members, &relay, &documents);
+replica.push()?; // this device's branches, tags and documents, in a signed, encrypted bundle
+replica.pull()?; // the other devices' bundles, checked and applied under refs/legix/devices/
+```
+
 ## Stable API
 
 Applications build on leGix for years, so its API is held to a contract:
 
-- **leGix's own crates** (`legix-sign` and `legix-crypt` today; the sync and membership crates as they land) work on
+- **leGix's own crates** (`legix-sign`, `legix-crypt` and `legix-sync` today; the membership crate as it lands) work on
   git's stable formats, on formats of their own that are specified and versioned, and on their own types. They follow
   semantic versioning strictly.
 - **Deprecation before removal.** An API is deprecated for at least one minor release, with its replacement
@@ -84,7 +95,7 @@ Applications build on leGix for years, so its API is held to a contract:
   migration notes.
 - **The engine** (`legix`, `legix-*`) follows the gitoxide release it is built on (see below). Code that uses
   leGix's own crates is shielded from engine changes. Helpers that extend the engine, such as
-  `legix_sign::repository`, follow the engine's version.
+  `legix_sign::repository` and `legix_sync::Replica`, follow the engine's version.
 
 ## Support
 

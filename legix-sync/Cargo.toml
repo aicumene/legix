@@ -1,0 +1,27 @@
+lints.workspace = true
+
+[package]
+name = "legix-sync"
+version = "0.1.0"
+description = "Sync git repositories through relays that cannot read them: signed, encrypted, append-only bundles from every device"
+repository = "https://github.com/aicumene/legix"
+license = "MIT OR Apache-2.0"
+authors = ["Ivan Menshikov <menshivan@gmail.com>"]
+edition = "2024"
+rust-version = "1.88"
+keywords = ["git", "sync", "end-to-end", "encryption", "legix"]
+categories = ["cryptography", "development-tools"]
+include = ["src/**/*", "README.md", "FORMAT.md", "LICENSE-*"]
+
+[dependencies]
+legix = { version = "^0.88.0", path = "../legix", features = ["sha256"] }
+legix-pack = { version = "^0.75.0", path = "../legix-pack", default-features = false, features = ["generate", "streaming-input"] }
+legix-crypt = { version = "^0.1.0", path = "../legix-crypt" }
+legix-sign = { version = "^0.1.0", path = "../legix-sign", default-features = false }
+
+blake3 = "1.8.7"
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["zeroize"] }
+getrandom = { version = "0.3.4", features = ["std"] }
+tempfile = "3.26.0"
+thiserror = "2.0.18"
+zeroize = { version = "1.9.0", features = ["zeroize_derive"] }
