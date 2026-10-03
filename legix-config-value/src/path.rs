@@ -35,7 +35,7 @@ pub mod interpolate {
     /// or any other error occurred.
     /// It can be used as `home_for_user` parameter in [`Path::interpolate()`][crate::Path::interpolate()].
     /// Returns `None` on Windows, Android, and WebAssembly targets other than Emscripten.
-    #[cfg_attr(windows, allow(unused_variables))]
+    #[cfg_attr(any(windows, target_os = "android"), allow(unused_variables))]
     #[cfg_attr(all(target_family = "wasm", not(target_os = "emscripten")), allow(unused_variables))]
     pub fn home_for_user(name: &str) -> Option<PathBuf> {
         #[cfg(not(any(
