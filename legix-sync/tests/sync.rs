@@ -10,8 +10,8 @@ use std::{
 use legix_crypt::{DirKeyStore, Documents, KeyStore, ObjectStore, Oid, Pointer, Status, StoreKey};
 use legix_sign::{Entry, Trust, ssh_key::PrivateKey};
 use legix_sync::{
-    AllowedSigners, BundleId, DeviceId, DirRelay, Error, GroupKey, Head, Problem, Pulled, Pushed, Relay, Replica,
-    SignedHead, Wait,
+    Access, AllowedSigners, BundleId, DeviceId, DirRelay, Error, Fixed, GroupKey, Head, Problem, Pulled, Pushed, Relay,
+    Replica, SignedHead, Wait,
 };
 
 /// `git` in `dir`, isolated from the system's and the user's configuration.
@@ -77,38 +77,30 @@ impl Device {
         git(&self.repo, &["rev-parse", "HEAD"])
     }
 
-    fn with<T>(
+    fn with<A: Access, T>(
         &self,
-        net: &Net,
-        members: &AllowedSigners,
+        access: &A,
         relay: &DirRelay,
-        f: impl FnOnce(&Replica<'_, DirRelay, DirKeyStore, PrivateKey>) -> T,
+        f: impl FnOnce(&Replica<'_, DirRelay, A, DirKeyStore, PrivateKey>) -> T,
     ) -> T {
         let repo = legix::open_opts(&self.repo, legix::open::Options::isolated()).unwrap();
-        f(&Replica::new(
-            &repo,
-            &self.key,
-            &net.group,
-            members,
-            relay,
-            &self.documents,
-        ))
+        f(&Replica::new(&repo, &self.key, access, relay, &self.documents))
     }
 
     fn push(&self, net: &Net) -> Pushed {
-        self.with(net, &net.members, &net.relay, |replica| replica.push().unwrap())
+        self.with(&net.access(), &net.relay, |replica| replica.push().unwrap())
     }
 
     fn pull(&self, net: &Net) -> Pulled {
-        self.with(net, &net.members, &net.relay, |replica| replica.pull().unwrap())
+        self.with(&net.access(), &net.relay, |replica| replica.pull().unwrap())
     }
 
     fn pull_from(&self, net: &Net, relay: &DirRelay) -> Pulled {
-        self.with(net, &net.members, relay, |replica| replica.pull().unwrap())
+        self.with(&net.access(), relay, |replica| replica.pull().unwrap())
     }
 
     fn erase(&self, net: &Net, oid: &Oid) {
-        self.with(net, &net.members, &net.relay, |replica| replica.erase(oid).unwrap());
+        self.with(&net.access(), &net.relay, |replica| replica.erase(oid).unwrap());
     }
 
     /// Where this device keeps the branch or tag `name` (`heads/main`, `tags/v1`) of `other`, if it has it.
@@ -139,6 +131,13 @@ struct Net {
     group: GroupKey,
     members: AllowedSigners,
     _dir: tempfile::TempDir,
+}
+
+impl Net {
+    /// The group key and the members, as access for a replica.
+    fn access(&self) -> Fixed {
+        Fixed::new(self.group.clone(), self.members.clone())
+    }
 }
 
 /// Devices with these names, all members, and a relay.
@@ -432,7 +431,8 @@ fn bundles_of_devices_that_are_not_members_are_refused() {
     let mut with_mallory = net.members.clone();
     with_mallory.push("mallory@example.com", mallory.key.public_key().clone());
     mallory.commit("terms.md", "Other terms\n", "Other terms");
-    mallory.with(&net, &with_mallory, &net.relay, |replica| replica.push().unwrap());
+    let access = Fixed::new(net.group.clone(), with_mallory);
+    mallory.with(&access, &net.relay, |replica| replica.push().unwrap());
     ada.commit("terms.md", "Heads of terms\n", "Heads of terms");
     ada.push(&net);
 
@@ -450,7 +450,8 @@ fn bundles_of_devices_that_are_not_members_are_refused() {
         ..Entry::new("ada@example.com", ada.key.public_key().clone())
     });
     let cy = Device::new(&net.root, "cy");
-    let pulled = cy.with(&net, &git_only, &net.relay, |replica| replica.pull().unwrap());
+    let access = Fixed::new(net.group.clone(), git_only);
+    let pulled = cy.with(&access, &net.relay, |replica| replica.pull().unwrap());
     assert!(pulled.applied.is_empty());
     assert!(
         pulled
@@ -525,9 +526,10 @@ fn a_device_that_writes_two_histories_is_caught() {
             seq: 3,
             prev,
             time,
+            epoch: 1,
             body: second.head().body,
             body_len: second.head().body_len,
-            key: Head::wrap_key(&net.group, &ada.id(), 3, &second.head().body, &key).unwrap(),
+            key: Head::wrap_key(&net.group, &ada.id(), 3, 1, &second.head().body, &key).unwrap(),
         };
         fs::write(head_path(&net, &ada, 3), head.sign(&ada.key).unwrap().as_bytes()).unwrap();
     };
@@ -606,7 +608,7 @@ fn only_one_sync_of_a_repository_runs_at_a_time() {
         None,
     )
     .unwrap();
-    let refused = ada.with(&net, &net.members, &net.relay, |replica| replica.pull().err());
+    let refused = ada.with(&net.access(), &net.relay, |replica| replica.pull().err());
     assert!(matches!(refused, Some(Error::Locked)));
 }
 
@@ -659,9 +661,10 @@ fn republish(net: &Net, device: &Device, change: impl FnOnce(Vec<u8>) -> Vec<u8>
         seq: 2,
         prev: first.id(),
         time: first.head().time,
+        epoch: 1,
         body: sealed.oid,
         body_len: body.len() as u64,
-        key: Head::wrap_key(&net.group, &device.id(), 2, &sealed.oid, &key).unwrap(),
+        key: Head::wrap_key(&net.group, &device.id(), 2, 1, &sealed.oid, &key).unwrap(),
     };
     net.relay
         .put_head(&device.id(), 2, head.sign(&device.key).unwrap().as_bytes())
@@ -725,7 +728,7 @@ fn an_envelope_with_another_key_is_not_kept() {
     net.relay
         .put_envelope(
             &pointer.oid,
-            &legix_sync::seal_envelope(&net.group, &pointer.oid, &wrong).unwrap(),
+            &legix_sync::seal_envelope(&net.group, 1, &pointer.oid, &wrong).unwrap(),
         )
         .unwrap();
     ada.push(&net);

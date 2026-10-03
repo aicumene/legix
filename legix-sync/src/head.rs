@@ -5,20 +5,20 @@ use std::fmt;
 use chacha20poly1305::{AeadInOut, KeyInit, Tag, XChaCha20Poly1305, XNonce};
 use legix_crypt::{DocumentKey, Oid};
 use legix_sign::{
-    AllowedSigners, Status, Trust,
+    AllowedSigners, Status,
     ssh_key::{PublicKey, SigningKey},
 };
 use zeroize::Zeroizing;
 
-use crate::{DeviceId, Error, GroupKey, NAMESPACE, Problem, hex};
+use crate::{Access, DeviceId, Error, GroupKey, NAMESPACE, Problem, hex};
 
 /// The first line of every head of this version.
-pub const VERSION: &str = "legix-bundle/1";
+pub const VERSION: &str = "legix-bundle/2";
 /// The length of a wrapped bundle key: nonce, key and tag.
 pub const WRAPPED_KEY_LEN: usize = NONCE_LEN + 32 + 16;
 
 const NONCE_LEN: usize = 24;
-const KEY_AAD_PREFIX: &[u8] = b"legix-bundle/1 key ";
+const KEY_AAD_PREFIX: &[u8] = b"legix-bundle/2 key ";
 const ARMOR_BEGIN: &[u8] = b"-----BEGIN SSH SIGNATURE-----\n";
 const ARMOR_END: &[u8] = b"-----END SSH SIGNATURE-----\n";
 
@@ -81,6 +81,8 @@ pub struct Head {
     pub prev: BundleId,
     /// When the bundle was written, in seconds since 1970.
     pub time: u64,
+    /// The group's epoch whose key wraps the bundle key.
+    pub epoch: u64,
     /// The id of the body, a legix-crypt object.
     pub body: Oid,
     /// The length of the body.
@@ -90,39 +92,41 @@ pub struct Head {
 }
 
 impl Head {
-    /// The seven lines that are signed.
+    /// The eight lines that are signed.
     pub fn to_text(&self) -> String {
         format!(
-            "{VERSION}\ndevice {}\nseq {}\nprev {}\ntime {}\nbody {} {}\nkey {}\n",
+            "{VERSION}\ndevice {}\nseq {}\nprev {}\ntime {}\nepoch {}\nbody {} {}\nkey {}\n",
             self.device,
             self.seq,
             self.prev,
             self.time,
+            self.epoch,
             self.body,
             self.body_len,
             hex::encode(&self.key)
         )
     }
 
-    /// Read the seven signed lines. Anything but their one text form is refused.
+    /// Read the eight signed lines. Anything but their one text form is refused.
     pub fn parse(text: &[u8]) -> Result<Self, Error> {
         parse_lines(text).map_err(Error::Format)
     }
 
-    /// Wrap `key`, the bundle key, for the bundle `seq` of `device` with body `body`.
+    /// Wrap `key`, the bundle key, with `group`, the key of `epoch`, for the bundle `seq` of `device` with body `body`.
     pub fn wrap_key(
         group: &GroupKey,
         device: &DeviceId,
         seq: u64,
+        epoch: u64,
         body: &Oid,
         key: &DocumentKey,
     ) -> Result<[u8; WRAPPED_KEY_LEN], Error> {
         let mut nonce = [0; NONCE_LEN];
         crate::random(&mut nonce)?;
-        Ok(wrap_key_with_nonce(group, device, seq, body, key, &nonce))
+        Ok(wrap_key_with_nonce(group, device, seq, epoch, body, key, &nonce))
     }
 
-    /// The bundle key, unwrapped with the group key.
+    /// The bundle key, unwrapped with `group`, the key of the head's epoch.
     pub fn unwrap_key(&self, group: &GroupKey) -> Result<DocumentKey, Error> {
         let (nonce, rest) = self.key.split_at(NONCE_LEN);
         let (wrapped, tag) = rest.split_at(32);
@@ -131,7 +135,7 @@ impl Head {
         cipher(group)
             .decrypt_inout_detached(
                 &XNonce::try_from(nonce).expect("24 bytes"),
-                &key_aad(&self.device, self.seq, &self.body),
+                &key_aad(&self.device, self.seq, self.epoch, &self.body),
                 (&mut key[..]).into(),
                 &Tag::try_from(tag).expect("16 bytes"),
             )
@@ -201,28 +205,32 @@ impl SignedHead {
         BundleId::of(&self.bytes)
     }
 
-    /// Check that a member signed the head: a good signature in the `legix-bundle` namespace, by the key of the device
-    /// the head names, which `members` allow at the head's time. Returns the principals the members list for the key.
-    pub fn verify(&self, members: &AllowedSigners) -> Result<String, Problem> {
-        let time = i64::try_from(self.head.time).map_err(|_| Problem::Format("the time is too large"))?;
+    /// The key that signed the head, once the signature is checked: good, in the `legix-bundle` namespace, by the key
+    /// of the device the head names.
+    pub fn signing_key(&self) -> Result<PublicKey, Problem> {
         let outcome = legix_sign::verify_in(
             NAMESPACE,
             self.signature(),
             &self.bytes[..self.signed_len],
-            Some(time),
-            members,
+            None,
+            &AllowedSigners::default(),
         );
         if outcome.status != Status::Good {
             return Err(Problem::Signature(outcome.status));
         }
-        let key = outcome.key.as_ref().expect("a good signature has its key");
-        if DeviceId::of(key) != self.head.device {
+        let key = outcome.key.expect("a good signature has its key");
+        if DeviceId::of(&key) != self.head.device {
             return Err(Problem::WrongDevice);
         }
-        match outcome.trust {
-            Trust::Allowed { principals } => Ok(principals),
-            other => Err(Problem::Untrusted(other)),
-        }
+        Ok(key)
+    }
+
+    /// Check that a member signed the head and may publish it: [`SignedHead::signing_key`], then what `access` says
+    /// about the device, the bundle's place, its epoch and its time. Returns the principals of the device.
+    pub fn verify(&self, access: &(impl Access + ?Sized)) -> Result<String, Problem> {
+        let key = self.signing_key()?;
+        let head = &self.head;
+        access.may_publish(&head.device, &key, head.seq, head.epoch, head.time)
     }
 }
 
@@ -230,6 +238,7 @@ pub(crate) fn wrap_key_with_nonce(
     group: &GroupKey,
     device: &DeviceId,
     seq: u64,
+    epoch: u64,
     body: &Oid,
     key: &DocumentKey,
     nonce: &[u8; NONCE_LEN],
@@ -240,7 +249,11 @@ pub(crate) fn wrap_key_with_nonce(
     nonce_out.copy_from_slice(nonce);
     key_out.copy_from_slice(key.as_bytes());
     let tag = cipher(group)
-        .encrypt_inout_detached(&XNonce::from(*nonce), &key_aad(device, seq, body), key_out.into())
+        .encrypt_inout_detached(
+            &XNonce::from(*nonce),
+            &key_aad(device, seq, epoch, body),
+            key_out.into(),
+        )
         .expect("32 bytes are far below the cipher's limit");
     tag_out.copy_from_slice(&tag);
     wrapped
@@ -250,8 +263,15 @@ fn cipher(group: &GroupKey) -> XChaCha20Poly1305 {
     XChaCha20Poly1305::new_from_slice(group.as_bytes()).expect("32 bytes is the key length")
 }
 
-fn key_aad(device: &DeviceId, seq: u64, body: &Oid) -> Vec<u8> {
-    [KEY_AAD_PREFIX, device.as_bytes(), &seq.to_be_bytes(), body.as_bytes()].concat()
+fn key_aad(device: &DeviceId, seq: u64, epoch: u64, body: &Oid) -> Vec<u8> {
+    [
+        KEY_AAD_PREFIX,
+        device.as_bytes(),
+        &seq.to_be_bytes(),
+        &epoch.to_be_bytes(),
+        body.as_bytes(),
+    ]
+    .concat()
 }
 
 fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
@@ -260,8 +280,8 @@ fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
         .strip_suffix('\n')
         .ok_or("the last line does not end with a line feed")?;
     let lines: Vec<&str> = text.split('\n').collect();
-    let [version, device, seq, prev, time, body, key] = lines[..] else {
-        return Err("expected seven lines");
+    let [version, device, seq, prev, time, epoch, body, key] = lines[..] else {
+        return Err("expected eight lines");
     };
     if version != VERSION {
         return Err("a version this crate does not read");
@@ -281,7 +301,11 @@ fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
     }
     let time = value(time, "time ").ok_or("the fifth line is not `time …`")?;
     let time = hex::number(&time).ok_or("the time is not a number")?;
-    let body = value(body, "body ").ok_or("the sixth line is not `body …`")?;
+    let epoch = value(epoch, "epoch ").ok_or("the sixth line is not `epoch …`")?;
+    let epoch = hex::number(&epoch)
+        .filter(|&n| n >= 1)
+        .ok_or("the epoch is not a number from 1")?;
+    let body = value(body, "body ").ok_or("the seventh line is not `body …`")?;
     let (oid, len) = body
         .split_once(' ')
         .ok_or("the body line is not `body <id> <length>`")?;
@@ -289,7 +313,7 @@ fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
         .parse()
         .map_err(|_| "the body id is not `blake3:` and 64 hex digits")?;
     let body_len = hex::number(len).ok_or("the body length is not a number")?;
-    let key = value(key, "key ").ok_or("the seventh line is not `key …`")?;
+    let key = value(key, "key ").ok_or("the eighth line is not `key …`")?;
     let mut wrapped = [0; WRAPPED_KEY_LEN];
     hex::decode(&key, &mut wrapped).ok_or("the key is not 144 lowercase hex digits")?;
     Ok(Head {
@@ -297,6 +321,7 @@ fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
         seq,
         prev,
         time,
+        epoch,
         body,
         body_len,
         key: wrapped,
@@ -305,9 +330,10 @@ fn parse_lines(text: &[u8]) -> Result<Head, &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use legix_sign::ssh_key::PrivateKey;
+    use legix_sign::{Trust, ssh_key::PrivateKey};
 
     use super::*;
+    use crate::Fixed;
 
     fn group() -> GroupKey {
         GroupKey::from_bytes(std::array::from_fn(|i| 0x40 + i as u8))
@@ -319,24 +345,25 @@ mod tests {
             .unwrap()
     }
 
-    /// A bundle key wrapped for a known group key, nonce, device, place and body, pinned so that the format cannot
-    /// change unnoticed. The same bytes come out of an independent implementation of FORMAT.md on OpenSSL.
+    /// A bundle key wrapped for a known group key, nonce, device, place, epoch and body, pinned so that the format
+    /// cannot change unnoticed. The same bytes come out of an independent implementation of FORMAT.md on OpenSSL.
     #[test]
     fn a_known_wrapped_bundle_key() {
         let device = DeviceId::from_bytes([0x11; 32]);
         let key = DocumentKey::from_bytes(std::array::from_fn(|i| i as u8));
         let nonce = std::array::from_fn(|i| 0x10 + i as u8);
-        let wrapped = wrap_key_with_nonce(&group(), &device, 7, &body(), &key, &nonce);
+        let wrapped = wrap_key_with_nonce(&group(), &device, 7, 2, &body(), &key, &nonce);
         assert_eq!(
             hex::encode(&wrapped),
             "101112131415161718191a1b1c1d1e1f2021222324252627524aeb4005f948255478563928585cf9143dd2e3b429d5db09a7b45\
-             62c252f00b81e833278b2d7c2124bd783a20a3fb4"
+             62c252f0023976432644667f457d4e152ace8095e"
         );
         let mut head = Head {
             device,
             seq: 7,
             prev: BundleId::from_bytes([1; 32]),
             time: 1_759_400_000,
+            epoch: 2,
             body: body(),
             body_len: 92,
             key: wrapped,
@@ -350,6 +377,12 @@ mod tests {
         assert!(
             matches!(head.unwrap_key(&group()), Err(Error::GroupKey)),
             "bound to its place"
+        );
+        head.seq = 7;
+        head.epoch = 3;
+        assert!(
+            matches!(head.unwrap_key(&group()), Err(Error::GroupKey)),
+            "bound to its epoch"
         );
     }
 
@@ -365,9 +398,10 @@ mod tests {
                 BundleId::from_bytes([3; 32])
             },
             time: 1_759_400_000,
+            epoch: 1,
             body: body(),
             body_len: 92,
-            key: Head::wrap_key(&group(), &device, seq, &body(), &bundle_key).unwrap(),
+            key: Head::wrap_key(&group(), &device, seq, 1, &body(), &bundle_key).unwrap(),
         }
         .sign(signer)
         .unwrap()
@@ -384,9 +418,12 @@ mod tests {
 
         let mut members = AllowedSigners::default();
         members.push("ada@example.com", ada.public_key().clone());
-        assert_eq!(read.verify(&members).unwrap(), "ada@example.com");
+        assert_eq!(
+            read.verify(&Fixed::new(group(), members.clone())).unwrap(),
+            "ada@example.com"
+        );
         assert!(matches!(
-            read.verify(&AllowedSigners::default()),
+            read.verify(&Fixed::new(group(), AllowedSigners::default())),
             Err(Problem::Untrusted(Trust::UnknownKey))
         ));
 
@@ -396,19 +433,20 @@ mod tests {
         let by_bob = legix_sign::sign_in(NAMESPACE, text.as_bytes(), &bob).unwrap();
         let forged = SignedHead::parse(format!("{text}{by_bob}").as_bytes()).unwrap();
         members.push("bob@example.com", bob.public_key().clone());
-        assert_eq!(forged.verify(&members), Err(Problem::WrongDevice));
+        let access = Fixed::new(group(), members);
+        assert_eq!(forged.verify(&access), Err(Problem::WrongDevice));
 
         // A commit signature over the same lines does not make a head.
         let as_commit = legix_sign::sign(text.as_bytes(), &ada).unwrap();
         let in_git = SignedHead::parse(format!("{text}{as_commit}").as_bytes()).unwrap();
-        assert_eq!(in_git.verify(&members), Err(Problem::Signature(Status::Bad)));
+        assert_eq!(in_git.verify(&access), Err(Problem::Signature(Status::Bad)));
 
         // One changed character of the signed lines.
         let altered = String::from_utf8(signed.as_bytes().to_vec())
             .unwrap()
             .replace("time 1759400000", "time 1759400001");
         let altered = SignedHead::parse(altered.as_bytes()).unwrap();
-        assert_eq!(altered.verify(&members), Err(Problem::Signature(Status::Bad)));
+        assert_eq!(altered.verify(&access), Err(Problem::Signature(Status::Bad)));
     }
 
     #[test]
@@ -421,13 +459,14 @@ mod tests {
             (first.replace('\n', "\r\n"), "CRLF"),
             (first.replace("seq 1", "seq 01"), "a leading zero"),
             (first.replace("seq 1", "seq 0"), "seq 0"),
+            (first.replace("epoch 1", "epoch 0"), "epoch 0"),
             (second.replace(&"03".repeat(32), &zeros), "a later bundle without prev"),
             (
                 first.replace(&format!("prev {zeros}"), &format!("prev {}", "03".repeat(32))),
                 "a first bundle with prev",
             ),
             (first.replace("time ", "time  "), "two spaces"),
-            (first.replace("legix-bundle/1", "legix-bundle/2"), "another version"),
+            (first.replace("legix-bundle/2", "legix-bundle/1"), "another version"),
             (first.replacen("\nkey ", "\nextra line\nkey ", 1), "an extra line"),
             (
                 first.replace("-----END SSH SIGNATURE-----\n", "-----END SSH SIGNATURE-----\nmore\n"),

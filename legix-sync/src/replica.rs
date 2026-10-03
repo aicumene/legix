@@ -8,13 +8,10 @@ use std::{
 
 use legix::{ObjectId, Repository, bstr::BString};
 use legix_crypt::{DocumentKey, Documents, KeyState, KeyStore, Oid, Status};
-use legix_sign::{
-    AllowedSigners,
-    ssh_key::{PublicKey, SigningKey},
-};
+use legix_sign::ssh_key::{PublicKey, SigningKey};
 
 use crate::{
-    DeviceId, Error, GroupKey, Problem, Relay,
+    Access, DeviceId, Error, GroupKey, Problem, Relay,
     body::{self, GitBundle, Manifest},
     envelope,
     head::{BundleId, Head, SignedHead},
@@ -26,12 +23,11 @@ use crate::{
 ///
 /// Each device publishes only its own branches and tags; the branches and tags of another device appear here under
 /// `refs/legix/devices/<its device id>/`, to merge from as one would from a remote.
-pub struct Replica<'a, R: ?Sized, K, S> {
+pub struct Replica<'a, R: ?Sized, A: ?Sized, K, S> {
     repo: &'a Repository,
     signer: &'a S,
     device: DeviceId,
-    group: &'a GroupKey,
-    members: &'a AllowedSigners,
+    access: &'a A,
     relay: &'a R,
     documents: &'a Documents<K>,
 }
@@ -70,7 +66,7 @@ pub struct Applied {
     pub device: DeviceId,
     /// Its place in the device's chain.
     pub seq: u64,
-    /// The principals the members list for the device's key.
+    /// The principals of the device, as its access says.
     pub principals: String,
     /// The device's branches and tags after the bundle.
     pub refs: Vec<(BString, ObjectId)>,
@@ -140,23 +136,15 @@ impl From<io::Error> for Step {
     }
 }
 
-impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
-    /// The replica of `repo` on the device that signs with `signer`, syncing with the `members` through `relay`. The
-    /// documents of the repository are in `documents`, and `group` is the key the members share.
-    pub fn new(
-        repo: &'a Repository,
-        signer: &'a S,
-        group: &'a GroupKey,
-        members: &'a AllowedSigners,
-        relay: &'a R,
-        documents: &'a Documents<K>,
-    ) -> Self {
+impl<'a, R: Relay + ?Sized, A: Access + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, A, K, S> {
+    /// The replica of `repo` on the device that signs with `signer`, syncing through `relay`. `access` says who may
+    /// publish and holds the group's keys; the documents of the repository are in `documents`.
+    pub fn new(repo: &'a Repository, signer: &'a S, access: &'a A, relay: &'a R, documents: &'a Documents<K>) -> Self {
         Replica {
             repo,
             signer,
             device: DeviceId::of(&PublicKey::from(signer.public_key())),
-            group,
-            members,
+            access,
             relay,
             documents,
         }
@@ -170,6 +158,7 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
     /// Publish this device's branches and tags, the documents their new commits point to, and the erasures not yet
     /// announced, in a new bundle. When there is nothing new, nothing is published.
     pub fn push(&self) -> Result<Pushed, Error> {
+        let (epoch, group) = self.access.current()?;
         let _lock = self.lock()?;
         let mut state = self.load()?;
         self.adopt_own(&mut state)?;
@@ -192,7 +181,7 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
         let outgoing = pack::outgoing(self.repo, &snapshot, &haves)?;
         let mut documents = Vec::new();
         for oid in &outgoing.documents {
-            documents.push((*oid, self.upload_document(oid)?));
+            documents.push((*oid, self.upload_document(oid, epoch, &group)?));
         }
         let manifest = Manifest {
             documents: outgoing.documents,
@@ -225,9 +214,10 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
             seq,
             prev: state.own.id,
             time: now().max(state.own.time),
+            epoch,
             body: body.oid,
             body_len: body.object_len().expect("a sealed body has a length"),
-            key: Head::wrap_key(self.group, &self.device, seq, &body.oid, &key)?,
+            key: Head::wrap_key(&group, &self.device, seq, epoch, &body.oid, &key)?,
         };
         let signed = head.sign(self.signer)?;
         self.relay.put_head(&self.device, seq, signed.as_bytes())?;
@@ -317,8 +307,10 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
     }
 
     /// Erase document `oid`: destroy its key here, delete its envelope and its object on the relay, and announce the
-    /// erasure in this device's next bundle, so that every member destroys its key too.
+    /// erasure in this device's next bundle, so that every member destroys its key too. Only a device that may publish
+    /// erases for the group.
     pub fn erase(&self, oid: &Oid) -> Result<(), Error> {
+        self.access.current()?;
         let _lock = self.lock()?;
         let mut state = self.load()?;
         self.documents.erase(oid)?;
@@ -336,7 +328,7 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
         if head.device != *device || head.seq != seq {
             return Err(Step::Refuse(Problem::Misplaced));
         }
-        let principals = signed.verify(self.members).map_err(Step::Refuse)?;
+        let principals = signed.verify(self.access).map_err(Step::Refuse)?;
         if head.prev != chain.id {
             return Err(Step::Refuse(Problem::Fork));
         }
@@ -411,9 +403,11 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
             return Err(Step::Refuse(Problem::BodyMismatch));
         }
         sealed.seek(SeekFrom::Start(0))?;
-        let key = head
-            .unwrap_key(self.group)
-            .map_err(|_| Step::Refuse(Problem::GroupKey))?;
+        let group = self
+            .access
+            .key(head.epoch)
+            .ok_or(Step::Refuse(Problem::NoKey(head.epoch)))?;
+        let key = head.unwrap_key(&group).map_err(|_| Step::Refuse(Problem::GroupKey))?;
         let mut plain = self.temp()?;
         legix_crypt::object::open(&key, BufReader::new(&mut sealed), BufWriter::new(&mut plain))
             .map_err(|err| Step::Refuse(Problem::Body(err.to_string())))?;
@@ -427,8 +421,6 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
     /// Take this device's bundles on the relay that the state does not know — written by a push that stopped before it
     /// saved — as published.
     fn adopt_own(&self, state: &mut State) -> Result<(), Error> {
-        let mut me = AllowedSigners::default();
-        me.push("*", PublicKey::from(self.signer.public_key()));
         loop {
             let seq = state.own.seq + 1;
             let Some(bytes) = self.relay.head(&self.device, seq)? else {
@@ -444,7 +436,8 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
             if head.device != self.device || head.seq != seq {
                 return Err(refuse(Problem::Misplaced));
             }
-            signed.verify(&me).map_err(refuse)?;
+            // The device id is the hash of the key, so a good signature by the head's device is this device's.
+            signed.signing_key().map_err(refuse)?;
             if head.prev != state.own.id {
                 return Err(refuse(Problem::Fork));
             }
@@ -467,9 +460,9 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
         }
     }
 
-    /// Put a document this device holds on the relay: its object and an envelope with its key. Returns whether it
-    /// holds the document.
-    fn upload_document(&self, oid: &Oid) -> Result<bool, Error> {
+    /// Put a document this device holds on the relay: its object and an envelope with its key, sealed with `group`, the
+    /// key of `epoch`. Returns whether it holds the document.
+    fn upload_document(&self, oid: &Oid, epoch: u64, group: &GroupKey) -> Result<bool, Error> {
         let KeyState::Present(key) = self.documents.keys().get(oid)? else {
             return Ok(false);
         };
@@ -483,7 +476,7 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
         if self.relay.envelope(oid)?.is_none() {
             match self
                 .relay
-                .put_envelope(oid, &envelope::seal_envelope(self.group, oid, &key)?)
+                .put_envelope(oid, &envelope::seal_envelope(group, epoch, oid, &key)?)
             {
                 Ok(()) => {}
                 Err(Error::Erased(_)) => return Ok(false),
@@ -514,7 +507,7 @@ impl<'a, R: Relay + ?Sized, K: KeyStore, S: SigningKey> Replica<'a, R, K, S> {
             let Some(envelope) = self.relay.envelope(oid)? else {
                 return Ok(false);
             };
-            let Ok(key) = envelope::open_envelope(self.group, oid, &envelope) else {
+            let Ok(key) = envelope::open_envelope(self.access, oid, &envelope) else {
                 return Ok(false);
             };
             // A key that does not open the document is not kept: it would stand in for the right one.

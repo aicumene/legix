@@ -5,8 +5,10 @@
 //! bundles and passes them on. It can check every signature and every chain, and it can read nothing.
 //!
 //! - A bundle's [head](head) is in the clear: the device, the bundle's place in the device's chain, the hash of the
-//!   previous bundle, the body's id, and the bundle key wrapped with the [`GroupKey`] the members share. It is signed in
-//!   the SSH signature namespace `legix-bundle`, so it cannot pass for a commit signature.
+//!   previous bundle, the body's id, and the bundle key wrapped with the [`GroupKey`] of the epoch the bundle is written
+//!   in. It is signed in the SSH signature namespace `legix-bundle`, so it cannot pass for a commit signature.
+//! - Who may publish, and the group key of each epoch, come from an [`Access`]: the group's membership log
+//!   (`legix-members`), whose key changes when a device leaves, or [`Fixed`] — one key and an allowed-signers list.
 //! - The body is a [legix-crypt](legix_crypt) object under the bundle key: the documents the new commits point to, the
 //!   documents the device erased, and a standard git bundle with the device's refs and a pack of the new objects.
 //! - Documents travel as legix-crypt objects, with their keys in envelopes for the members, kept apart from the bundles:
@@ -25,6 +27,7 @@
 #![deny(missing_docs, rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
+mod access;
 mod body;
 mod device;
 mod envelope;
@@ -37,9 +40,10 @@ pub mod relay;
 mod replica;
 mod state;
 
+pub use access::{Access, Fixed};
 pub use body::{GitBundle, Manifest};
 pub use device::{DeviceId, GroupKey};
-pub use envelope::{ENVELOPE_LEN, open_envelope, seal_envelope};
+pub use envelope::{ENVELOPE_LEN, envelope_epoch, open_envelope, seal_envelope};
 pub use error::{Error, Problem};
 pub use head::{BundleId, Head, SignedHead};
 pub use legix_sign::AllowedSigners;

@@ -38,6 +38,24 @@ pub enum Error {
         /// What is wrong with it.
         problem: Problem,
     },
+    /// The relay already has an entry of the membership log at this place: another admin wrote first.
+    #[error("the relay already has entry {seq} of the membership log")]
+    EntryExists {
+        /// The entry's place in the log.
+        seq: u64,
+    },
+    /// The relay does not have the entry before this one: the membership log has no gaps.
+    #[error("the relay does not have entry {} of the membership log, which comes first", seq - 1)]
+    EntryGap {
+        /// The place of the entry that was refused.
+        seq: u64,
+    },
+    /// This device does not hold the group key of this epoch.
+    #[error("this device does not hold the group key of epoch {0}")]
+    NoKey(u64),
+    /// This device may not publish.
+    #[error("this device may not publish: {0}")]
+    NotAllowed(Problem),
     /// The relay already has a head at this place: heads are never replaced.
     #[error("the relay already has bundle {seq} of {device}")]
     HeadExists {
@@ -84,6 +102,21 @@ pub enum Problem {
     /// The members do not allow the signing key to publish at the head's time.
     #[error("the key is not a member's: {0:?}")]
     Untrusted(legix_sign::Trust),
+    /// The device is not a member of the group, and never was.
+    #[error("the device is not a member")]
+    NotMember,
+    /// The device may publish only up to this bundle: it was made a reader, or removed.
+    #[error("the device may publish only up to bundle {cutoff}: it was made a reader, or removed")]
+    PastCutoff {
+        /// The device's last bundle that may be applied.
+        cutoff: u64,
+    },
+    /// The bundle is written in an epoch the device was not a member in, or one that does not exist.
+    #[error("the bundle is written in epoch {0}, which the device was not a member in")]
+    WrongEpoch(u64),
+    /// This device does not hold the group key of the bundle's epoch.
+    #[error("this device does not hold the group key of epoch {0}")]
+    NoKey(u64),
     /// The head does not follow the bundle applied before from the device: the chain forks.
     #[error("the head does not follow the previous bundle: the chain forks")]
     Fork,

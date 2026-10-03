@@ -46,6 +46,20 @@ pub trait Relay {
 
     /// Delete the envelope of document `oid` and refuse envelopes for it from then on.
     fn erase_envelope(&self, oid: &Oid) -> Result<(), Error>;
+
+    /// Entry `seq` of the membership log, if the relay has it.
+    fn member_entry(&self, seq: u64) -> Result<Option<Vec<u8>>, Error>;
+
+    /// Keep entry `seq` of the membership log. Entries are never replaced: refused with [`Error::EntryExists`] if the
+    /// relay has an entry at `seq` — another admin wrote first — and with [`Error::EntryGap`] if it does not have entry
+    /// `seq - 1`.
+    fn put_member_entry(&self, seq: u64, entry: &[u8]) -> Result<(), Error>;
+
+    /// The join requests devices left on the relay.
+    fn joins(&self) -> Result<Vec<Vec<u8>>, Error>;
+
+    /// Leave the join request of `device` for the admins, replacing one it left before.
+    fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error>;
 }
 
 impl<R: Relay + ?Sized> Relay for &R {
@@ -88,6 +102,22 @@ impl<R: Relay + ?Sized> Relay for &R {
     fn erase_envelope(&self, oid: &Oid) -> Result<(), Error> {
         (**self).erase_envelope(oid)
     }
+
+    fn member_entry(&self, seq: u64) -> Result<Option<Vec<u8>>, Error> {
+        (**self).member_entry(seq)
+    }
+
+    fn put_member_entry(&self, seq: u64, entry: &[u8]) -> Result<(), Error> {
+        (**self).put_member_entry(seq, entry)
+    }
+
+    fn joins(&self) -> Result<Vec<Vec<u8>>, Error> {
+        (**self).joins()
+    }
+
+    fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error> {
+        (**self).put_join(device, request)
+    }
 }
 
 /// A relay in a directory that several devices see: a network share, a synced cloud folder, a removable drive.
@@ -97,6 +127,8 @@ impl<R: Relay + ?Sized> Relay for &R {
 /// objects/<2 hex>/<62 hex>
 /// envelopes/<2 hex>/<62 hex>
 /// erased/<2 hex>/<62 hex>
+/// members/<seq as 20 digits>
+/// joins/<device id>
 /// ```
 ///
 /// A synced folder that keeps deleted files for a while keeps erased envelopes for as long.
@@ -131,6 +163,10 @@ impl DirRelay {
 
     fn erased_path(&self, oid: &Oid) -> PathBuf {
         fsutil::fan_out(&self.dir.join("erased"), &oid.to_hex())
+    }
+
+    fn entry_path(&self, seq: u64) -> PathBuf {
+        self.dir.join("members").join(format!("{seq:020}"))
     }
 }
 
@@ -212,6 +248,46 @@ impl Relay for DirRelay {
             fsutil::write_atomically(&erased, b"")?;
         }
         remove_if_present(&self.envelope_path(oid))?;
+        Ok(())
+    }
+
+    fn member_entry(&self, seq: u64) -> Result<Option<Vec<u8>>, Error> {
+        Ok(fsutil::read_if_present(&self.entry_path(seq))?)
+    }
+
+    fn put_member_entry(&self, seq: u64, entry: &[u8]) -> Result<(), Error> {
+        if seq > 1 && !self.entry_path(seq - 1).try_exists()? {
+            return Err(Error::EntryGap { seq });
+        }
+        if !fsutil::write_new(&self.entry_path(seq), entry)? {
+            return Err(Error::EntryExists { seq });
+        }
+        Ok(())
+    }
+
+    fn joins(&self) -> Result<Vec<Vec<u8>>, Error> {
+        let entries = match fs::read_dir(self.dir.join("joins")) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(err) => return Err(err.into()),
+        };
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.parse::<DeviceId>().is_ok())
+            {
+                names.push(entry.path());
+            }
+        }
+        names.sort();
+        names.iter().map(|path| fs::read(path).map_err(Error::from)).collect()
+    }
+
+    fn put_join(&self, device: &DeviceId, request: &[u8]) -> Result<(), Error> {
+        fsutil::write_atomically(&self.dir.join("joins").join(device.to_hex()), request)?;
         Ok(())
     }
 }
