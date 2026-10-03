@@ -1161,13 +1161,36 @@ impl Folder {
         peer: &Peer<DirRelay>,
         wait: std::time::Duration,
     ) -> Result<Direct, Error> {
-        let before = self.sync()?;
+        self.sync_direct_holding(endpoint, peer, wait, || ()).await
+    }
+
+    /// [`Folder::sync_direct`], holding what `hold` returns while this device works on its folder, and not while it
+    /// waits on the network — up to `wait` for each device that does not answer. An application that lets one thing
+    /// at a time work on a folder passes its lock, and goes on answering while the devices are dialled: the mirror
+    /// takes what the network brings at any time, as it does when other devices dial in.
+    pub async fn sync_direct_holding<G>(
+        &self,
+        endpoint: &iroh::Endpoint,
+        peer: &Peer<DirRelay>,
+        wait: std::time::Duration,
+        hold: impl Fn() -> G,
+    ) -> Result<Direct, Error> {
+        let before = {
+            let _held = hold();
+            self.sync()?
+        };
         let was_member = before.member;
         let mut reached = self.dial_all(endpoint, peer, wait).await?;
-        let mut synced = before.followed_by(self.sync()?);
+        let mut synced = before.followed_by({
+            let _held = hold();
+            self.sync()?
+        });
         if synced.member && !was_member {
             reached = self.dial_all(endpoint, peer, wait).await?;
-            synced = synced.followed_by(self.sync()?);
+            synced = synced.followed_by({
+                let _held = hold();
+                self.sync()?
+            });
         }
         Ok(Direct { reached, synced })
     }

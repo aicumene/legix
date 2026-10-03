@@ -3,9 +3,13 @@
 
 use std::{
     fs,
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
@@ -187,6 +191,53 @@ async fn a_device_out_of_reach_is_reported_and_the_rest_goes_on() {
     assert!(direct.reached[0].outcome.is_err());
     assert!(direct.synced.member, "the folder still synced with its mirror");
     online.router.shutdown().await.unwrap();
+}
+
+#[test]
+fn only_the_work_on_the_folder_is_held_while_the_devices_are_dialled() {
+    let dir = tempfile::tempdir().unwrap();
+    let ada = Device::new(dir.path(), "ada");
+    let keys = Keys::generate("ada").unwrap();
+    ada.write("Notes.md", "Notes\n");
+    // A device that is somewhere, and never answers: the dial waits for it.
+    let silent = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let away = SecretKey::generate().public();
+    let lock = Arc::new(Mutex::new(()));
+    let held = Arc::new(AtomicUsize::new(0));
+    let syncing = {
+        let (lock, held, silent) = (lock.clone(), held.clone(), silent.local_addr().unwrap());
+        thread::spawn(move || {
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let lookup = MemoryLookup::new();
+                lookup.add_endpoint_info(EndpointAddr::new(away).with_ip_addr(silent));
+                let online = Online::start(&keys, &lookup).await;
+                let adas = Folder::found(&ada.state, &ada.work, keys, &ada.principal()).unwrap();
+                adas.save("Notes").unwrap().unwrap();
+                adas.add_peer(away.as_bytes()).unwrap();
+                let peer = adas.peer(&online.id()).unwrap();
+                let direct = adas
+                    .sync_direct_holding(&online.endpoint, &peer, Duration::from_secs(4), || {
+                        held.fetch_add(1, Ordering::SeqCst);
+                        lock.lock().unwrap()
+                    })
+                    .await
+                    .unwrap();
+                online.router.shutdown().await.unwrap();
+                direct
+            })
+        })
+    };
+    thread::sleep(Duration::from_secs(2));
+    let free = lock.try_lock().is_ok();
+    let direct = syncing.join().unwrap();
+    assert!(free, "nothing is held while a device is waited for");
+    assert_eq!(
+        held.load(Ordering::SeqCst),
+        2,
+        "the folder's own work is held: the sync before and after"
+    );
+    assert!(direct.reached[0].outcome.is_err());
+    drop(silent);
 }
 
 #[tokio::test(flavor = "multi_thread")]

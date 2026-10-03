@@ -32,7 +32,8 @@ apart from the documents:
   endpoint (`Peers` answers for every history on it), and `Folder::sync_direct` syncs with every device the group's log
   shows, and with those this device was told of (`Folder::add_peer` — the endpoint in an invitation). A device that
   asked to join without a shared folder knocks: its request reaches the admins of the devices it reaches, and once
-  added, its next sync brings the history.
+  added, its next sync brings the history. `sync_direct_holding` takes the application's lock and holds it only
+  while the device works on its folder, not while it waits on the network.
 - **Members.** The group decides who reads and who writes ([legix-members](../legix-members)). `found` starts a group
   with this device as its admin, and `join` asks to join one. An admin compares the request's fingerprint with the one
   the new device shows and `admit`s it as a writer or a reader; `remove` takes a device out, and the group moves to a
