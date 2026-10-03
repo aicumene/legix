@@ -11,6 +11,8 @@ Signed history for git: sign and verify commits in git's SSH signature format, i
 - **Trust you can audit.** Trust comes from git's allowed-signers file: principals, `namespaces`, and
   `valid-after`/`valid-before` checked at the commit's time. Key rotation therefore does not invalidate history
   that was signed while a key was valid.
+- **Namespaces.** `sign_in`, `verify_in` and `AllowedSigners::trust_in` work in another SSH signature namespace than
+  `git`, for data that must never pass for a commit signature — leGix signs its sync bundles in `legix-bundle`.
 
 ```rust
 use legix_sign::{AllowedSigners, ObjectFormat};

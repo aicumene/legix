@@ -160,7 +160,14 @@ pub fn generate_ed25519(comment: &str) -> Result<ssh_key::PrivateKey, Error> {
 /// Sign `payload` in the `git` namespace with SHA-512, as `ssh-keygen -Y sign -n git` does, and return the armored
 /// signature git stores.
 pub fn sign(payload: &[u8], key: &impl SigningKey) -> Result<String, Error> {
-    let signature = SshSig::sign(key, NAMESPACE, HashAlg::Sha512, payload)?;
+    sign_in(NAMESPACE, payload, key)
+}
+
+/// Sign `payload` in `namespace` with SHA-512, as `ssh-keygen -Y sign -n <namespace>` does, and return the armored
+/// signature. A signature verifies only in the namespace it was made in, so data signed for one purpose cannot be
+/// passed off for another.
+pub fn sign_in(namespace: &str, payload: &[u8], key: &impl SigningKey) -> Result<String, Error> {
+    let signature = SshSig::sign(key, namespace, HashAlg::Sha512, payload)?;
     Ok(signature.to_pem(LineEnding::LF)?)
 }
 
@@ -222,6 +229,18 @@ pub fn verify_commit(commit: &[u8], format: ObjectFormat, signers: &AllowedSigne
 /// Verify an armored SSH `signature` over `signed_data` in the `git` namespace, and look its key up in `signers`
 /// at `time` (Unix seconds; `None` ignores `valid-after` and `valid-before`).
 pub fn verify(signature: &[u8], signed_data: &[u8], time: Option<i64>, signers: &AllowedSigners) -> Outcome {
+    verify_in(NAMESPACE, signature, signed_data, time, signers)
+}
+
+/// Like [`verify`], in `namespace`: a signature made in another namespace is [`Status::Bad`], and trust comes from the
+/// entries that allow `namespace`.
+pub fn verify_in(
+    namespace: &str,
+    signature: &[u8],
+    signed_data: &[u8],
+    time: Option<i64>,
+    signers: &AllowedSigners,
+) -> Outcome {
     let not_evaluated = |status| Outcome {
         status,
         trust: Trust::NotEvaluated,
@@ -237,17 +256,17 @@ pub fn verify(signature: &[u8], signed_data: &[u8], time: Option<i64>, signers: 
     };
     let key = PublicKey::from(signature.public_key().clone());
     let fingerprint = Some(key.fingerprint(HashAlg::Sha256).to_string());
-    let status = if signature.namespace() != NAMESPACE {
+    let status = if signature.namespace() != namespace {
         Status::Bad
     } else {
-        match key.verify(NAMESPACE, signed_data, &signature) {
+        match key.verify(namespace, signed_data, &signature) {
             Ok(()) => Status::Good,
             Err(ssh_key::Error::Crypto) => Status::Bad,
             Err(err) => Status::Unreadable(err.to_string()),
         }
     };
     let trust = if status == Status::Good {
-        signers.trust(&key, time)
+        signers.trust_in(namespace, &key, time)
     } else {
         Trust::NotEvaluated
     };

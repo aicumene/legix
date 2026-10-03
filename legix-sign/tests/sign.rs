@@ -247,3 +247,38 @@ fn allowed_signers_refuse_lines_they_cannot_read() {
         }
     }
 }
+
+#[test]
+fn a_signature_verifies_only_in_its_namespace_and_trust_follows_it() {
+    let key = key("ada");
+    let payload = b"a bundle head";
+    let signature = legix_sign::sign_in("legix-bundle", payload, &key).unwrap();
+    let signers = signers_for(&key);
+
+    let outcome = legix_sign::verify_in("legix-bundle", signature.as_bytes(), payload, None, &signers);
+    assert!(outcome.is_trusted());
+    for (namespace, what) in [("git", "a commit signature"), ("file", "another namespace")] {
+        let outcome = legix_sign::verify_in(namespace, signature.as_bytes(), payload, None, &signers);
+        assert_eq!(outcome.status, Status::Bad, "not {what}");
+    }
+    assert_eq!(
+        legix_sign::verify(signature.as_bytes(), payload, None, &signers).status,
+        Status::Bad
+    );
+
+    let only_git = |namespaces: &str| {
+        let mut signers = AllowedSigners::default();
+        signers.push_entry(Entry {
+            namespaces: Some(namespaces.into()),
+            ..Entry::new("ada@example.com", key.public_key().clone())
+        });
+        legix_sign::verify_in("legix-bundle", signature.as_bytes(), payload, None, &signers).trust
+    };
+    assert_eq!(only_git("git"), Trust::UnknownKey);
+    assert_eq!(
+        only_git("git,legix-*"),
+        Trust::Allowed {
+            principals: "ada@example.com".into()
+        }
+    );
+}

@@ -46,13 +46,13 @@ impl Entry {
         }
     }
 
-    fn signs_with(&self, key: &PublicKey) -> bool {
+    fn signs_with(&self, key: &PublicKey, namespace: &str) -> bool {
         !self.cert_authority
             && self.key.key_data() == key.key_data()
             && self
                 .namespaces
                 .as_deref()
-                .is_none_or(|namespaces| pattern_list_matches(NAMESPACE, namespaces))
+                .is_none_or(|namespaces| pattern_list_matches(namespace, namespaces))
     }
 
     fn valid_at(&self, time: Option<i64>) -> bool {
@@ -103,9 +103,15 @@ impl AllowedSigners {
     /// The principals `key` may sign for in the `git` namespace at `time` (Unix seconds; `None` ignores validity),
     /// from the first matching entry — what git reports after `ssh-keygen -Y find-principals`.
     pub fn principals_for(&self, key: &PublicKey, time: Option<i64>) -> Option<&str> {
+        self.principals_in(NAMESPACE, key, time)
+    }
+
+    /// The principals `key` may sign for in `namespace` at `time` (Unix seconds; `None` ignores validity), from the
+    /// first matching entry.
+    pub fn principals_in(&self, namespace: &str, key: &PublicKey, time: Option<i64>) -> Option<&str> {
         self.entries
             .iter()
-            .find(|entry| entry.signs_with(key) && entry.valid_at(time))
+            .find(|entry| entry.signs_with(key, namespace) && entry.valid_at(time))
             .map(|entry| entry.principals.as_str())
     }
 
@@ -113,17 +119,20 @@ impl AllowedSigners {
     /// decides it.
     pub fn allows(&self, principal: &str, key: &PublicKey, time: Option<i64>) -> bool {
         self.entries.iter().any(|entry| {
-            entry.signs_with(key) && entry.valid_at(time) && pattern_list_matches(principal, &entry.principals)
+            entry.signs_with(key, NAMESPACE)
+                && entry.valid_at(time)
+                && pattern_list_matches(principal, &entry.principals)
         })
     }
 
-    pub(crate) fn trust(&self, key: &PublicKey, time: Option<i64>) -> Trust {
-        if let Some(principals) = self.principals_for(key, time) {
+    /// What the allowed signers say about `key` in `namespace` at `time` (Unix seconds; `None` ignores validity).
+    pub fn trust_in(&self, namespace: &str, key: &PublicKey, time: Option<i64>) -> Trust {
+        if let Some(principals) = self.principals_in(namespace, key, time) {
             return Trust::Allowed {
                 principals: principals.into(),
             };
         }
-        match self.entries.iter().find(|entry| entry.signs_with(key)) {
+        match self.entries.iter().find(|entry| entry.signs_with(key, namespace)) {
             Some(entry) => Trust::OutsideValidity {
                 principals: entry.principals.clone(),
             },
