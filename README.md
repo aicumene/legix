@@ -149,8 +149,8 @@ cargo test --workspace
 ```
 
 The workspace builds with Rust 1.98 (`rust-toolchain.toml`), which was stable when gitoxide v0.59.0 was
-released. The `legix` library keeps gitoxide's minimum supported Rust version, 1.88; `legix-p2p` needs 1.91, as
-iroh does. Many tests create fixture
+released. The `legix` library keeps gitoxide's minimum supported Rust version, 1.88; `legix-p2p` with its `iroh`
+feature needs 1.91, as iroh does. Many tests create fixture
 repositories with the system's `git` and `bash`. The signing tests also need OpenSSH's `ssh-keygen`.
 
 ## License

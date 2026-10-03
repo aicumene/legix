@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 /// Errors of this crate.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -37,6 +35,7 @@ pub enum Error {
 }
 
 /// An error of the connection, as text: its types are iroh's.
-pub(crate) fn connection_error(err: impl Display) -> Error {
+#[cfg(feature = "iroh")]
+pub(crate) fn connection_error(err: impl std::fmt::Display) -> Error {
     Error::Connection(err.to_string())
 }

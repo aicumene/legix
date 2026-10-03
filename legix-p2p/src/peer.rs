@@ -1,7 +1,5 @@
 //! A device's part in device-to-device sync.
 
-use std::collections::BTreeMap;
-
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::{Connection, RecvStream, SendStream},
@@ -11,51 +9,13 @@ use legix_crypt::Oid;
 use legix_members::{GroupId, Identity, JoinRequest, Members};
 use legix_sync::{DeviceId, Relay};
 
-use crate::{EndpointCert, Error, Inventory, error::connection_error, intake::Intake, inventory::Item, wire};
+use crate::{
+    Counts, EndpointCert, Error, Inventory, Synced, error::connection_error, intake::Intake, inventory::Item,
+    replicate::by_device, wire,
+};
 
 /// The ALPN of leGix's device-to-device sync.
 pub const ALPN: &[u8] = b"legix/sync/1";
-
-/// What a sync brought and gave.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Synced {
-    /// The device synced with; `None` for [`replicate`].
-    pub peer: Option<DeviceId>,
-    /// What was kept of what the other side gave.
-    pub received: Counts,
-    /// What was given.
-    pub sent: Counts,
-    /// What was refused, and why.
-    pub refused: Vec<Refusal>,
-}
-
-/// How many items of each kind.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Counts {
-    /// Entries of the membership log.
-    pub entries: usize,
-    /// Endpoint certificates.
-    pub endpoints: usize,
-    /// Join requests.
-    pub joins: usize,
-    /// Bundle heads.
-    pub heads: usize,
-    /// Objects: bundle bodies and documents.
-    pub objects: usize,
-    /// Envelopes of document keys.
-    pub envelopes: usize,
-}
-
-/// An item that was not kept.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-    /// The item.
-    pub item: String,
-    /// Why it was not kept.
-    pub reason: String,
-}
 
 /// A device's part in device-to-device sync: its mirror of the group — a relay it alone writes to, which its
 /// `legix_sync::Replica` pushes to and pulls from — and the keys and certificate it syncs with.
@@ -98,7 +58,7 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
                 && certificate.is_member(&members)
                 && certificate.device() != self.certificate.device()
             {
-                peers.push((certificate.device(), certificate.endpoint()));
+                peers.push((certificate.device(), certificate.endpoint_id()));
             }
         }
         Ok(peers)
@@ -163,7 +123,7 @@ impl<R: Relay + Send + Sync + 'static> Peer<R> {
             return Err(Error::WrongGroup);
         }
         let certificate = EndpointCert::parse(certificate)?;
-        if certificate.endpoint() != connection.remote_id() {
+        if certificate.endpoint_id() != connection.remote_id() {
             return Err(Error::WrongEndpoint);
         }
         Ok(certificate)
@@ -310,72 +270,6 @@ async fn take<R: Relay + ?Sized>(
             _ => return Err(Error::Protocol("an unexpected frame")),
         }
     }
-}
-
-/// Bring into `to` what `from` has and `to` lacks — a mirror and a synced folder, two mirrors on one machine — checking
-/// each item as one from a peer: the membership log of `group`, whose keys `identity` opens, decides what `to` keeps.
-pub fn replicate(
-    from: &(impl Relay + ?Sized),
-    to: &(impl Relay + ?Sized),
-    group: &GroupId,
-    identity: &Identity,
-) -> Result<Synced, Error> {
-    let theirs = Inventory::of(from)?;
-    let mine = Inventory::of(to)?;
-    let mut intake = Intake::new(to, *group, identity)?;
-    let endpoints = by_device(from.endpoints()?, |bytes| {
-        EndpointCert::parse(bytes).ok().map(|certificate| certificate.device())
-    });
-    let joins = by_device(from.joins()?, |bytes| {
-        JoinRequest::parse(bytes).ok().map(|request| request.device())
-    });
-    for item in theirs.plan(&mine) {
-        match item {
-            Item::Entry(seq) => {
-                if let Some(entry) = from.member_entry(seq)? {
-                    intake.entry(seq, &entry)?;
-                }
-            }
-            Item::Endpoint(device) => {
-                if let Some(certificate) = endpoints.get(&device) {
-                    intake.endpoint(device, certificate)?;
-                }
-            }
-            Item::Join(device) => {
-                if let Some(request) = joins.get(&device) {
-                    intake.join(device, request)?;
-                }
-            }
-            Item::Head(device, seq) => {
-                if let Some(head) = from.head(&device, seq)? {
-                    intake.head(device, seq, &head)?;
-                }
-            }
-            Item::Object(oid) => {
-                if let Some(mut object) = from.open_object(&oid)? {
-                    intake.object(oid, &mut object)?;
-                }
-            }
-            Item::Envelope(oid) => {
-                if let Some(envelope) = from.envelope(&oid)? {
-                    intake.envelope(oid, &envelope)?;
-                }
-            }
-        }
-    }
-    Ok(Synced {
-        peer: None,
-        received: intake.received,
-        sent: Counts::default(),
-        refused: intake.refused,
-    })
-}
-
-fn by_device(items: Vec<Vec<u8>>, device: impl Fn(&[u8]) -> Option<DeviceId>) -> BTreeMap<DeviceId, Vec<u8>> {
-    items
-        .into_iter()
-        .filter_map(|bytes| device(&bytes).map(|device| (device, bytes)))
-        .collect()
 }
 
 fn split_u64(payload: &[u8]) -> Result<(u64, &[u8]), Error> {

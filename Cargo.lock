@@ -3927,6 +3927,7 @@ dependencies = [
 name = "legix-p2p"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek 2.2.0",
  "iroh",
  "legix",
  "legix-crypt",

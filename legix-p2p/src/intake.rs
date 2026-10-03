@@ -42,6 +42,7 @@ impl<'a, R: Relay + ?Sized> Intake<'a, R> {
     }
 
     /// The membership as the relay's log, with what was taken, defines it.
+    #[cfg(feature = "iroh")]
     pub(crate) fn members(&self) -> &Members {
         &self.members
     }

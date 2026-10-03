@@ -35,6 +35,7 @@ for (device, endpoint_id) in peer.peers()? {
 
 The endpoint certificate, the frames, the inventory, the protocol and the checks are specified in
 [FORMAT.md](FORMAT.md). The formats are versioned; a released version stays readable. The API follows semantic
-versioning, and follows iroh's for the types it takes from iroh. The crate needs Rust 1.91, as iroh does.
+versioning, and follows iroh's for the types it takes from iroh. With its default feature `iroh` the crate needs Rust
+1.91, as iroh does; without it, it offers `replicate` and its checks, and needs Rust 1.88.
 
 The cryptography has not yet had an independent audit.

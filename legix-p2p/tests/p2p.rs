@@ -143,7 +143,8 @@ impl Online {
             .bind()
             .await
             .unwrap();
-        let certificate = certificate.unwrap_or_else(|| EndpointCert::new(&device.key, endpoint.id()).unwrap());
+        let certificate =
+            certificate.unwrap_or_else(|| EndpointCert::new(&device.key, endpoint.id().as_bytes()).unwrap());
         let peer = Arc::new(Peer::new(device.mirror(), group, device.identity.clone(), certificate).unwrap());
         let router = Router::builder(endpoint.clone()).accept(ALPN, peer.clone()).spawn();
         Online { endpoint, peer, router }
@@ -279,7 +280,7 @@ async fn devices_outside_the_group_are_turned_away() {
     // A device that holds a member's certificate, but not its endpoint.
     let bo_online = Online::start(&bo, group).await;
     bo_online.sync_with(&ada_online).await.unwrap();
-    let bos_certificate = EndpointCert::new(&bo.key, bo_online.endpoint.id()).unwrap();
+    let bos_certificate = EndpointCert::new(&bo.key, bo_online.endpoint.id().as_bytes()).unwrap();
     let impostor = Online::start_with(&mallory, group, Some(bos_certificate)).await;
     assert!(impostor.sync_with(&ada_online).await.is_err());
 
@@ -388,7 +389,7 @@ fn a_device_cannot_slip_in_what_the_group_would_refuse() {
     forged
         .put_endpoint(
             &mallory.id(),
-            EndpointCert::new(&mallory.key, endpoint).unwrap().as_bytes(),
+            EndpointCert::new(&mallory.key, endpoint.as_bytes()).unwrap().as_bytes(),
         )
         .unwrap();
 

@@ -1,6 +1,5 @@
 //! Endpoint certificates: a device says, with its own key, at which iroh endpoint it is reached.
 
-use iroh::EndpointId;
 use legix_members::Members;
 use legix_sign::{
     AllowedSigners, Status,
@@ -23,20 +22,21 @@ pub const NAMESPACE: &str = "legix-endpoint";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EndpointCert {
     device: DeviceId,
-    endpoint: EndpointId,
+    endpoint: [u8; 32],
     time: u64,
     key: PublicKey,
     bytes: Vec<u8>,
 }
 
 impl EndpointCert {
-    /// The certificate of the device that signs with `signer`, for the iroh endpoint `endpoint`.
-    pub fn new(signer: &impl SigningKey, endpoint: EndpointId) -> Result<Self, Error> {
+    /// The certificate of the device that signs with `signer`, for the iroh endpoint whose id — an Ed25519 public
+    /// key — is `endpoint`.
+    pub fn new(signer: &impl SigningKey, endpoint: &[u8; 32]) -> Result<Self, Error> {
         let key = PublicKey::from(signer.public_key());
         let text = format!(
             "{VERSION}\ndevice {}\nendpoint {}\ntime {}\n",
             DeviceId::of(&key),
-            hex::encode(endpoint.as_bytes()),
+            hex::encode(endpoint),
             crate::now()
         );
         let signature = legix_sign::sign_in(NAMESPACE, text.as_bytes(), signer)?;
@@ -68,8 +68,11 @@ impl EndpointCert {
             .strip_prefix("endpoint ")
             .and_then(|hex| hex::decode(hex, &mut endpoint_bytes))
             .ok_or(Error::Format("a certificate's endpoint line"))?;
-        let endpoint =
-            EndpointId::from_bytes(&endpoint_bytes).map_err(|_| Error::Format("a certificate's endpoint id"))?;
+        if ed25519_dalek::VerifyingKey::from_bytes(&endpoint_bytes).is_err() {
+            return Err(Error::Format(
+                "a certificate's endpoint id is not an Ed25519 public key",
+            ));
+        }
         let time = time
             .strip_prefix("time ")
             .and_then(hex::number)
@@ -82,7 +85,7 @@ impl EndpointCert {
         };
         Ok(EndpointCert {
             device,
-            endpoint,
+            endpoint: endpoint_bytes,
             time,
             key,
             bytes: bytes.to_vec(),
@@ -94,9 +97,15 @@ impl EndpointCert {
         self.device
     }
 
-    /// The iroh endpoint it is reached at.
-    pub fn endpoint(&self) -> EndpointId {
+    /// The id of the iroh endpoint it is reached at: an Ed25519 public key.
+    pub fn endpoint(&self) -> [u8; 32] {
         self.endpoint
+    }
+
+    /// The iroh endpoint it is reached at.
+    #[cfg(feature = "iroh")]
+    pub fn endpoint_id(&self) -> iroh::EndpointId {
+        iroh::EndpointId::from_bytes(&self.endpoint).expect("checked when the certificate was read")
     }
 
     /// When the certificate was made, in seconds since 1970.

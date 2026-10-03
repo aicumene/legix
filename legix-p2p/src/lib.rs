@@ -14,7 +14,8 @@
 //!   their chains, their signatures and the membership, objects against their ids, envelopes against the group's keys.
 //!   A device can pass on the bundles of devices that are offline, and nothing it could alter.
 //!
-//! [`Peer`] dials other devices and, as an iroh `ProtocolHandler` for [`ALPN`], answers them. The application builds the
+//! `Peer` (feature `iroh`, on by default) dials other devices and, as an iroh `ProtocolHandler` for `ALPN`, answers
+//! them. The application builds the
 //! iroh endpoint — its relays, its discovery on the local network — and finds the devices to dial with [`Peer::peers`].
 //! [`replicate`] syncs two relays on one machine, such as a mirror and a synced folder, with the same checks.
 //! `FORMAT.md` specifies the certificate and the protocol.
@@ -28,14 +29,21 @@ mod error;
 mod hex;
 mod intake;
 mod inventory;
+mod outcome;
+#[cfg(feature = "iroh")]
 mod peer;
+mod replicate;
 mod signed;
+#[cfg(feature = "iroh")]
 mod wire;
 
 pub use cert::{EndpointCert, NAMESPACE, VERSION};
 pub use error::Error;
 pub use inventory::Inventory;
-pub use peer::{ALPN, Counts, Peer, Refusal, Synced, replicate};
+pub use outcome::{Counts, Refusal, Synced};
+#[cfg(feature = "iroh")]
+pub use peer::{ALPN, Peer};
+pub use replicate::replicate;
 
 /// Seconds since 1970.
 pub(crate) fn now() -> u64 {

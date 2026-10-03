@@ -9,6 +9,7 @@ use legix_sync::{DeviceId, Relay};
 use crate::{EndpointCert, Error};
 
 /// The largest number of items an inventory may list of one kind.
+#[cfg(feature = "iroh")]
 const MAX_ITEMS: u32 = 1 << 22;
 
 /// What a relay holds: the end of the membership log and of each device's chain, the objects, the envelopes, the join
@@ -107,6 +108,7 @@ impl Inventory {
     }
 
     /// The inventory as it travels.
+    #[cfg(feature = "iroh")]
     pub(crate) fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         let (seq, id) = self.log.map_or((0, [0; 32]), |(seq, id)| (seq, *id.as_bytes()));
@@ -138,6 +140,7 @@ impl Inventory {
     }
 
     /// Read an inventory as it travels.
+    #[cfg(feature = "iroh")]
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader(bytes);
         let mut inventory = Inventory::default();
@@ -172,8 +175,10 @@ impl Inventory {
     }
 }
 
+#[cfg(feature = "iroh")]
 struct Reader<'a>(&'a [u8]);
 
+#[cfg(feature = "iroh")]
 impl Reader<'_> {
     fn take<const N: usize>(&mut self) -> Result<[u8; N], Error> {
         let (head, rest) = self
@@ -219,6 +224,7 @@ mod tests {
         mine.joins.insert(bo);
         mine.endpoints.insert(ada, 100);
         mine.endpoints.insert(bo, 50);
+        #[cfg(feature = "iroh")]
         assert_eq!(Inventory::decode(&mine.encode()).unwrap(), mine);
 
         let mut theirs = Inventory {
@@ -244,6 +250,7 @@ mod tests {
                 Item::Envelope(Oid::of(b"a")),
             ]
         );
+        #[cfg(feature = "iroh")]
         assert!(Inventory::decode(&mine.encode()[..20]).is_err());
         assert!(theirs.plan(&theirs).is_empty());
     }
