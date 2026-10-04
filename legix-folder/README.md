@@ -37,6 +37,11 @@ apart from the documents:
   asked to join without a shared folder knocks: its request reaches the admins of the devices it reaches, and once
   added, its next sync brings the history. `sync_direct_holding` takes the application's lock and holds it only
   while the device works on its folder, not while it waits on the network.
+- **Conversation.** `say` writes a message into the group's conversation, signed by the device; `messages` reads it,
+  oldest first, each device's messages in their order. Messages travel with the versions — in the same bundles,
+  encrypted for the members, through the shared folder and directly — on a branch of their own: they are no versions,
+  and change no document. `dial` hands what is new to the devices the endpoint reaches without touching the folder,
+  so a message can go out at once while the application goes on.
 - **Members.** The group decides who reads and who writes ([legix-members](../legix-members)). `found` starts a group
   with this device as its admin, and `join` asks to join one. An admin compares the request's fingerprint with the one
   the new device shows and `admit`s it as a writer or a reader; `remove` takes a device out, and the group moves to a

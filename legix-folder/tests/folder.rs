@@ -740,3 +740,45 @@ fn an_applications_notes_go_with_the_versions_and_are_no_documents() {
     ada.write(".legix/text/Contract.docx.md", "# The contract, revised\n");
     assert_eq!(adas.changes().unwrap(), [".legix/text/Contract.docx.md"]);
 }
+
+#[test]
+fn the_devices_talk_apart_from_the_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_ada, adas, _bo, bos) = two_devices(dir.path());
+    let versions = adas.versions().unwrap().len();
+    let incoming = [adas.incoming().unwrap(), bos.incoming().unwrap()];
+    assert!(adas.messages().unwrap().is_empty());
+    let first = adas.say("  Can you check clause 4?  ").unwrap();
+    assert_eq!(first.text, "Can you check clause 4?");
+    assert!(adas.say(" \n ").is_err(), "a message says something");
+    adas.say("The cap, mostly.").unwrap();
+    adas.sync().unwrap();
+    bos.sync().unwrap();
+    bos.say("Done: the cap is missing.").unwrap();
+    bos.sync().unwrap();
+    adas.sync().unwrap();
+
+    for (folder, incoming) in [&adas, &bos].into_iter().zip(incoming) {
+        let messages = folder.messages().unwrap();
+        let said: Vec<(&str, &str)> = messages
+            .iter()
+            .map(|m| (m.principal.as_deref().unwrap_or("?"), m.text.as_str()))
+            .collect();
+        let ada: Vec<&str> = said
+            .iter()
+            .filter(|(who, _)| *who == "ada@example.com")
+            .map(|(_, text)| *text)
+            .collect();
+        assert_eq!(
+            ada,
+            ["Can you check clause 4?", "The cap, mostly."],
+            "a device's messages keep their order"
+        );
+        assert!(said.contains(&("bo@example.com", "Done: the cap is missing.")));
+        assert_eq!(said.len(), 3);
+        assert!(messages.iter().all(|m| m.signed == Signed::ByMember));
+        assert_eq!(folder.versions().unwrap().len(), versions, "messages are no versions");
+        assert_eq!(folder.incoming().unwrap(), incoming, "nothing new to bring in");
+        assert!(folder.changes().unwrap().is_empty(), "no document changed");
+    }
+}

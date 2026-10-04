@@ -60,6 +60,9 @@ use walk::Known;
 /// The branch this device's versions are on.
 const BRANCH: &str = "refs/heads/main";
 
+/// The branch this device's messages are on: the group's conversation travels with the versions, apart from them.
+const CHAT: &str = "refs/heads/chat";
+
 /// Whether a file named `name` is a document, which versions keep. Hidden files, Office's lock files and the system's
 /// own files are not.
 pub fn is_document(name: &str) -> bool {
@@ -212,6 +215,24 @@ pub struct Version {
     pub signed: Signed,
     /// How many documents it holds.
     pub documents: usize,
+}
+
+/// A message of the group's conversation ([`Folder::say`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Message {
+    /// The commit that carries it.
+    pub id: ObjectId,
+    /// The device that signed it, if its signature is good.
+    pub device: Option<DeviceId>,
+    /// The name of that device in the group.
+    pub principal: Option<String>,
+    /// When it was written, in seconds since 1970, by its device's clock.
+    pub time: i64,
+    /// What it says.
+    pub text: String,
+    /// Whether a member signed it.
+    pub signed: Signed,
 }
 
 /// Who signed a version.
@@ -571,6 +592,77 @@ impl Folder {
             versions.push(version);
         }
         Ok(versions)
+    }
+
+    /// Write `text` into the group's conversation, signed by this device. A message is no version and changes no
+    /// document: it goes with the next sync, as versions do — encrypted for the members, through the shared folder and
+    /// directly — and every member's [`Folder::messages`] holds it.
+    pub fn say(&self, text: &str) -> Result<Message, Error> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(Error::Format("a message says something"));
+        }
+        let parent = self
+            .repo
+            .try_find_reference(CHAT)
+            .map_err(repository)?
+            .and_then(|reference| reference.try_id().map(legix::Id::detach));
+        // The empty tree, written: the bundle that carries the message carries it too.
+        let tree = self
+            .repo
+            .edit_tree(self.repo.empty_tree().id)
+            .map_err(repository)?
+            .write()
+            .map_err(repository)?
+            .detach();
+        let id = self.repo.commit_signed(CHAT, text, tree, parent, &self.keys.signing)?;
+        self.message(id, &self.signers())
+    }
+
+    /// The group's conversation, oldest first: this device's messages and those the other devices' bundles brought.
+    /// Each device's messages keep their order, whatever its clock says; between devices, the earlier comes first.
+    pub fn messages(&self) -> Result<Vec<Message>, Error> {
+        let signers = self.signers();
+        let own = self
+            .repo
+            .try_find_reference(CHAT)
+            .map_err(repository)?
+            .and_then(|reference| reference.try_id().map(legix::Id::detach));
+        let mut seen = BTreeSet::new();
+        let mut chains: Vec<Vec<Message>> = Vec::new();
+        for tip in own.into_iter().chain(self.device_branches(CHAT)?) {
+            let mut chain = Vec::new();
+            let mut next = Some(tip);
+            while let Some(id) = next {
+                if !seen.insert(id) {
+                    break;
+                }
+                let commit = self.repo.find_commit(id).map_err(repository)?;
+                next = commit.parent_ids().next().map(legix::Id::detach);
+                chain.push(self.message(id, &signers)?);
+            }
+            chain.reverse();
+            if !chain.is_empty() {
+                chains.push(chain);
+            }
+        }
+        // Each chain in its own order; the next message is the earliest of the chains' next ones.
+        let mut messages = Vec::with_capacity(chains.iter().map(Vec::len).sum());
+        let mut at = vec![0; chains.len()];
+        loop {
+            let next = (0..chains.len())
+                .filter(|&chain| at[chain] < chains[chain].len())
+                .min_by_key(|&chain| {
+                    let message = &chains[chain][at[chain]];
+                    (message.time, message.device.map(|device| device.to_string()), chain)
+                });
+            let Some(chain) = next else {
+                break;
+            };
+            messages.push(chains[chain][at[chain]].clone());
+            at[chain] += 1;
+        }
+        Ok(messages)
     }
 
     /// The documents in the folder now, by their paths in it, as [`Folder::save`] takes them — without the notes.
@@ -1005,11 +1097,22 @@ impl Folder {
     }
 
     /// The newest version of every device whose versions reached this one.
+    /// The other devices' versions: the tips of their branch of versions.
     fn device_tips(&self) -> Result<Vec<ObjectId>, Error> {
+        self.device_branches(BRANCH)
+    }
+
+    /// The tips of the other devices' `branch` — `refs/heads/main` here is `refs/legix/devices/<device>/heads/main`
+    /// there. Their other branches — the conversation — are not their versions.
+    fn device_branches(&self, branch: &str) -> Result<Vec<ObjectId>, Error> {
+        let suffix = format!("/{}", branch.trim_start_matches("refs/"));
         let mut tips = Vec::new();
         let references = self.repo.references().map_err(repository)?;
         for reference in references.prefixed("refs/legix/devices/").map_err(repository)? {
             let reference = reference.map_err(repository)?;
+            if !reference.name().as_bstr().to_str_lossy().ends_with(&suffix) {
+                continue;
+            }
             if let Some(id) = reference.try_id() {
                 tips.push(id.detach());
             }
@@ -1103,7 +1206,40 @@ impl Folder {
         let time = commit.time().map_err(repository)?.seconds;
         let message = commit.message_raw_sloppy().to_str_lossy().trim().to_owned();
         let tree = commit.tree_id().map_err(repository)?.detach();
-        let (signed, device) = match self.repo.verify_commit_signature(id, signers)? {
+        let (signed, device) = self.signed(id, signers)?;
+        Ok(Version {
+            id,
+            principal: device.and_then(|device| names.get(&device).cloned()),
+            device,
+            time,
+            message,
+            signed,
+            documents: self.files(tree)?.iter().filter(|(name, _)| !is_note(name)).count(),
+        })
+    }
+
+    fn message(
+        &self,
+        id: ObjectId,
+        (signers, names): &(AllowedSigners, BTreeMap<DeviceId, String>),
+    ) -> Result<Message, Error> {
+        let commit = self.repo.find_commit(id).map_err(repository)?;
+        let time = commit.time().map_err(repository)?.seconds;
+        let text = commit.message_raw_sloppy().to_str_lossy().trim().to_owned();
+        let (signed, device) = self.signed(id, signers)?;
+        Ok(Message {
+            id,
+            principal: device.and_then(|device| names.get(&device).cloned()),
+            device,
+            time,
+            text,
+            signed,
+        })
+    }
+
+    /// Who signed the commit `id`, and the device whose key it is.
+    fn signed(&self, id: ObjectId, signers: &AllowedSigners) -> Result<(Signed, Option<DeviceId>), Error> {
+        Ok(match self.repo.verify_commit_signature(id, signers)? {
             None => (Signed::Unsigned, None),
             Some(outcome) => {
                 let device = outcome.key.as_ref().map(DeviceId::of);
@@ -1113,15 +1249,6 @@ impl Folder {
                     _ => (Signed::Bad, None),
                 }
             }
-        };
-        Ok(Version {
-            id,
-            principal: device.and_then(|device| names.get(&device).cloned()),
-            device,
-            time,
-            message,
-            signed,
-            documents: self.files(tree)?.iter().filter(|(name, _)| !is_note(name)).count(),
         })
     }
 
@@ -1202,13 +1329,13 @@ impl Folder {
             self.sync()?
         };
         let was_member = before.member;
-        let mut reached = self.dial_all(endpoint, peer, wait).await?;
+        let mut reached = self.dial(endpoint, peer, wait).await?;
         let mut synced = before.followed_by({
             let _held = hold();
             self.sync()?
         });
         if synced.member && !was_member {
-            reached = self.dial_all(endpoint, peer, wait).await?;
+            reached = self.dial(endpoint, peer, wait).await?;
             synced = synced.followed_by({
                 let _held = hold();
                 self.sync()?
@@ -1217,7 +1344,11 @@ impl Folder {
         Ok(Direct { reached, synced })
     }
 
-    async fn dial_all(
+    /// Exchange mirrors with every device of the group that `endpoint` reaches — as [`Folder::sync_direct`] does
+    /// between its syncs of the folder — each given `wait`. Nothing of the folder changes: what came lands in the
+    /// mirror, and the next [`Folder::sync`] takes it in. So it may run on its own, while the application goes on with
+    /// the folder — to hand a message on at once, say.
+    pub async fn dial(
         &self,
         endpoint: &iroh::Endpoint,
         peer: &Peer<DirRelay>,
