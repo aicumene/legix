@@ -70,8 +70,9 @@ struct Letters {
 impl Mailbox for Letters {
     fn receive(&self, from: &EndpointCert, letter: &[u8]) -> Result<Vec<u8>, String> {
         let letter = Letter::parse(letter).map_err(|err| err.to_string())?;
+        // The card's certificate may be another of the same device: the device and its endpoint are what count.
         if let Letter::Card(card) = &letter
-            && card.certificate() != from
+            && (card.device() != from.device() || card.endpoint() != from.endpoint())
         {
             return Err("a card is given by its own device".to_owned());
         }
