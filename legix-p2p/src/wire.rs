@@ -1,4 +1,4 @@
-//! Frames: how a sync travels on one QUIC stream in each direction.
+//! Frames: how a sync, or a letter, travels on one QUIC stream in each direction.
 
 use std::io::{Read, Seek, SeekFrom, Write};
 
@@ -20,6 +20,10 @@ pub(crate) const ENVELOPE: u8 = 10;
 pub(crate) const END: u8 = 11;
 pub(crate) const DONE: u8 = 12;
 pub(crate) const ASKED: u8 = 13;
+pub(crate) const FROM: u8 = 14;
+pub(crate) const LETTER: u8 = 15;
+pub(crate) const ANSWER: u8 = 16;
+pub(crate) const REFUSED: u8 = 17;
 
 /// The most bytes of an object one chunk carries.
 pub(crate) const CHUNK_LEN: usize = 1 << 20;
@@ -29,6 +33,9 @@ fn max_len(kind: u8) -> Option<u64> {
     let kib = |n: u64| n << 10;
     Some(match kind {
         HELLO | ENDPOINT | JOIN => 32 + kib(64),
+        FROM => kib(64),
+        LETTER | ANSWER => crate::MAX_LETTER as u64,
+        REFUSED => kib(1),
         INVENTORY => 256 << 20,
         ENTRY => 8 + legix_members::MAX_LEN as u64,
         HEAD => 32 + 8 + kib(64),

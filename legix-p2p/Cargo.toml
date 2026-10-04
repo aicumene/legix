@@ -34,6 +34,10 @@ iroh = ["dep:iroh", "dep:tokio"]
 name = "p2p"
 required-features = ["iroh"]
 
+[[test]]
+name = "post"
+required-features = ["iroh"]
+
 [dev-dependencies]
 legix = { version = "^0.88.0", path = "../legix", features = ["sha256"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

@@ -19,6 +19,11 @@
 //! the device it reaches keeps for the admins. The application builds the
 //! iroh endpoint — its relays, its discovery on the local network — and finds the devices to dial with [`Peer::peers`].
 //! [`replicate`] syncs two relays on one machine, such as a mirror and a synced folder, with the same checks.
+//!
+//! Outside the groups, devices give each other **letters** (feature `iroh`): [`send_letter`] hands a short note — a
+//! card, an invitation — to another device on a connection of its own (`POST_ALPN`), with the sender's certificate,
+//! and brings back the answer; [`Post`] answers them on an endpoint, giving each letter to the application's
+//! [`Mailbox`].
 //! `FORMAT.md` specifies the certificate and the protocol.
 //!
 //! [iroh]: https://www.iroh.computer
@@ -33,6 +38,8 @@ mod inventory;
 mod outcome;
 #[cfg(feature = "iroh")]
 mod peer;
+#[cfg(feature = "iroh")]
+mod post;
 mod replicate;
 mod signed;
 #[cfg(feature = "iroh")]
@@ -44,6 +51,8 @@ pub use inventory::Inventory;
 pub use outcome::{Counts, Refusal, Synced};
 #[cfg(feature = "iroh")]
 pub use peer::{ALPN, Peer, Peers};
+#[cfg(feature = "iroh")]
+pub use post::{MAX_LETTER, Mailbox, POST_ALPN, Post, send_letter};
 pub use replicate::replicate;
 
 /// Seconds since 1970.

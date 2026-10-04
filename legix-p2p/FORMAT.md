@@ -105,6 +105,27 @@ this order, so that the log arrives before what it decides.
 5. Both send **done** once they have taken everything up to the other's **end**, and finish the stream. The dialer
    closes the connection after the acceptor's **done**.
 
+## Letters
+
+Outside the groups, one device gives another a **letter** — a short note the application reads, such as a card or an
+invitation — with the ALPN `legix/post/1`. The dialer opens one bidirectional stream, and the frames are those of
+sync, with kinds of their own:
+
+| Kind | Name | Payload | Longest payload |
+|---|---|---|---|
+| 14 | from | the sender's endpoint certificate | 64 KiB |
+| 15 | letter | the letter | 64 KiB |
+| 16 | answer | the receiver's answer | 64 KiB |
+| 17 | refused | why the receiver refused the letter, UTF-8 | 1 KiB |
+
+1. The dialer sends **from** and **letter**, and finishes its stream.
+2. The receiver checks that the certificate is good and names the endpoint at the other end of the connection —
+   otherwise it closes the connection, and the letter goes nowhere. It gives the letter, with the certificate, to the
+   application, and sends its **answer** or **refused**, then finishes its stream.
+3. The dialer closes the connection once it has read the answer.
+
+A letter belongs to no group: the receiver decides what to make of it, by its sender's device.
+
 ## What a device keeps
 
 A device checks every item before its mirror keeps it, and refuses the item otherwise; a refused item is reported and

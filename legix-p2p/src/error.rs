@@ -32,6 +32,9 @@ pub enum Error {
     /// The peer did not follow the protocol.
     #[error("the peer broke the protocol: {0}")]
     Protocol(&'static str),
+    /// The device a letter went to refused it, for this reason.
+    #[error("the letter was refused: {0}")]
+    Refused(String),
 }
 
 /// An error of the connection, as text: its types are iroh's.

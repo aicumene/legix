@@ -16,6 +16,9 @@ members of a group only, with nothing to trust in between.
   next sync brings the log and the history.
 - **One endpoint, many groups.** `Peers` answers for every group a device keeps, each from its own mirror, and groups
   come and go while the endpoint answers.
+- **Letters.** Outside the groups, a device gives another a short note — its card, an invitation — on a connection of
+  its own (`POST_ALPN`): `send_letter` sends it with the sender's certificate and brings back the answer, and `Post`
+  hands each letter an endpoint takes to the application's `Mailbox`, which answers it or refuses it with a reason.
 - **Any path.** iroh connects directly, punching through NAT, and falls back to relays; the application chooses its
   relays and its discovery, on the local network or beyond. `replicate` syncs a mirror with a shared folder or another
   relay on the same machine, with the same checks.
@@ -38,7 +41,7 @@ for (device, endpoint_id) in peer.peers()? {
 
 ## Formats and stability
 
-The endpoint certificate, the frames, the inventory, the protocol and the checks are specified in
+The endpoint certificate, the frames, the inventory, the protocol, the letters and the checks are specified in
 [FORMAT.md](FORMAT.md). The formats are versioned; a released version stays readable. The API follows semantic
 versioning, and follows iroh's for the types it takes from iroh. With its default feature `iroh` the crate needs Rust
 1.91, as iroh does; without it, it offers `replicate` and its checks, and needs Rust 1.88.
