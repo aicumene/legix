@@ -58,7 +58,7 @@ pub use zeroize::Zeroizing;
 #[cfg(feature = "p2p")]
 pub use {
     iroh,
-    legix_p2p::{ALPN, MAX_LETTER, Mailbox, POST_ALPN, Peer, Peers, Post, send_letter},
+    legix_p2p::{ALPN, Error as P2pError, MAX_LETTER, Mailbox, POST_ALPN, Peer, Peers, Post, send_letter},
 };
 
 use error::repository;
