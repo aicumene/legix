@@ -14,10 +14,15 @@
 //!   its admin, [`Folder::join`] asks to join one, and admins [admit](Folder::admit) and [remove](Folder::remove)
 //!   devices.
 //!
+//! - Outside the groups, devices know each other by their [`Card`]s — a device's keys, where it is reached, the name
+//!   its owner goes by — and an admin brings a device it knows into a group with an [`Invitation`]
+//!   ([`Folder::invite`], [`Folder::join_invited`]). Devices give each other both by post (feature `p2p`).
+//!
 //! The application keeps the device's [`Keys`] — in the operating system's keychain — and hands them in.
 #![deny(missing_docs, rust_2018_idioms)]
 #![forbid(unsafe_code)]
 
+mod card;
 mod error;
 mod settings;
 mod walk;
@@ -40,10 +45,12 @@ use legix_crypt::{DirKeyStore, Documents, ObjectStore, Pointer, Status};
 use legix_sign::{AllowedSigners, Trust, repository::RepositoryExt, ssh_key::PrivateKey};
 use legix_sync::{Relay, Replica};
 
+pub use card::{CARD, Card, INVITATION, INVITATION_NAMESPACE, Invitation, Letter};
 pub use error::Error;
 pub use legix::ObjectId;
 pub use legix_crypt::StoreKey;
 pub use legix_members::{GroupId, Identity, JoinRequest, Member, Members, Role};
+pub use legix_p2p::EndpointCert;
 pub use legix_sign::ssh_key;
 pub use legix_sync::{DeviceId, DirRelay};
 pub use settings::Settings;
@@ -51,7 +58,7 @@ pub use zeroize::Zeroizing;
 #[cfg(feature = "p2p")]
 pub use {
     iroh,
-    legix_p2p::{ALPN, Peer, Peers},
+    legix_p2p::{ALPN, MAX_LETTER, Mailbox, POST_ALPN, Peer, Peers, Post, send_letter},
 };
 
 use error::repository;
@@ -412,6 +419,24 @@ impl Folder {
             relay.put_join(&request.device(), request.as_bytes())?;
         }
         Ok((folder, request))
+    }
+
+    /// Join the group of `invitation`, which an admin's device gave this one ([`Folder::invite`]), keeping the history
+    /// of `work` in `state`: the inviting device is the one to sync with directly. The admin added this device
+    /// already, so its first sync brings the group's history.
+    pub fn join_invited(
+        state: impl Into<PathBuf>,
+        work: impl Into<PathBuf>,
+        keys: Keys,
+        principal: &str,
+        invitation: &Invitation,
+    ) -> Result<Self, Error> {
+        if invitation.to() != keys.device() {
+            return Err(Error::Format("the invitation is for another device"));
+        }
+        let (folder, _) = Self::join(state, work, keys, principal, invitation.group(), None)?;
+        folder.add_peer(&invitation.endpoint())?;
+        Ok(folder)
     }
 
     fn create(state: PathBuf, settings: Settings, keys: Keys) -> Result<Self, Error> {
@@ -1059,6 +1084,83 @@ impl Folder {
     /// Add the device of `request` with `role`. This device must be an admin.
     pub fn admit(&self, request: &JoinRequest, role: Role) -> Result<(), Error> {
         self.change(|members| Ok(members.change().add(request.clone(), role).sign(&self.keys.signing)?))
+    }
+
+    /// Add the device of `card` to the group as `role` — unless it is a member already — and invite it: the
+    /// invitation, signed by this device, names the group, this device's endpoint `endpoint` to sync from, and what
+    /// the group is to the application (`kind`, `title`). The application gives it to the device by post; the device
+    /// joins with it ([`Folder::join_invited`]). This device must be an admin.
+    pub fn invite(
+        &self,
+        card: &Card,
+        role: Role,
+        kind: &str,
+        title: &str,
+        endpoint: &[u8; 32],
+    ) -> Result<Invitation, Error> {
+        let member = self
+            .members()?
+            .roster()
+            .members()
+            .get(&card.device())
+            .is_some_and(|member| member.last_epoch.is_none());
+        if !member {
+            self.admit(card.request(), role)?;
+        }
+        Invitation::new(
+            &self.keys.signing,
+            self.settings.group,
+            endpoint,
+            card.device(),
+            role,
+            kind,
+            title,
+        )
+    }
+
+    /// The join requests of the group's members now, from its log: what each device signed about itself — its keys
+    /// and its principal.
+    pub fn member_requests(&self) -> Result<Vec<JoinRequest>, Error> {
+        let members = self.members()?;
+        let mut requests = BTreeMap::new();
+        let mut seq = 1;
+        while let Some(bytes) = self.mirror.member_entry(seq)? {
+            if let Ok(entry) = legix_members::Entry::parse(&bytes) {
+                for op in entry.ops() {
+                    if let legix_members::Op::Add { request, .. } = op {
+                        requests.insert(request.device(), request.clone());
+                    }
+                }
+            }
+            seq += 1;
+        }
+        Ok(requests
+            .into_values()
+            .filter(|request| {
+                members
+                    .roster()
+                    .members()
+                    .get(&request.device())
+                    .is_some_and(|member| member.last_epoch.is_none())
+            })
+            .collect())
+    }
+
+    /// The endpoint certificates of the group's members, as the mirror holds them: where each is reached directly.
+    pub fn certificates(&self) -> Result<Vec<EndpointCert>, Error> {
+        let members = self.members()?;
+        let mut latest: BTreeMap<DeviceId, EndpointCert> = BTreeMap::new();
+        for bytes in self.mirror.endpoints()? {
+            if let Ok(certificate) = EndpointCert::parse(&bytes)
+                && certificate.is_member(&members)
+                && latest
+                    .get(&certificate.device())
+                    .is_none_or(|kept| kept.time() < certificate.time())
+            {
+                latest.insert(certificate.device(), certificate);
+            }
+        }
+        Ok(latest.into_values().collect())
     }
 
     /// Remove `device` from the group. The versions it published so far stay; the group moves to a new key, which

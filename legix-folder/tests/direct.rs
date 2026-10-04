@@ -14,8 +14,9 @@ use std::{
 };
 
 use legix_folder::{
-    ALPN, DirRelay, Folder, Keys, Peers, Role,
+    ALPN, Card, DirRelay, EndpointCert, Folder, Keys, Letter, Mailbox, POST_ALPN, Peers, Post, Role,
     iroh::{Endpoint, EndpointAddr, SecretKey, address_lookup::MemoryLookup, endpoint::presets, protocol::Router},
+    send_letter,
 };
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -50,11 +51,34 @@ impl Device {
     }
 }
 
-/// A device's endpoint, answering for its histories; others find it in `lookup`, as iroh's discovery would.
+/// A device's endpoint, answering for its histories and taking letters; others find it in `lookup`, as iroh's
+/// discovery would.
 struct Online {
     endpoint: Endpoint,
     peers: Arc<Peers<DirRelay>>,
+    post: Arc<Letters>,
     router: Router,
+}
+
+/// The letters a device was given; it answers each with its own card, once it has one.
+#[derive(Default)]
+struct Letters {
+    card: Mutex<Option<Card>>,
+    kept: Mutex<Vec<Letter>>,
+}
+
+impl Mailbox for Letters {
+    fn receive(&self, from: &EndpointCert, letter: &[u8]) -> Result<Vec<u8>, String> {
+        let letter = Letter::parse(letter).map_err(|err| err.to_string())?;
+        if let Letter::Card(card) = &letter
+            && card.certificate() != from
+        {
+            return Err("a card is given by its own device".to_owned());
+        }
+        self.kept.lock().unwrap().push(letter);
+        let card = self.card.lock().unwrap();
+        Ok(card.as_ref().map(|card| card.as_bytes().to_vec()).unwrap_or_default())
+    }
 }
 
 impl Online {
@@ -62,7 +86,7 @@ impl Online {
         let endpoint = Endpoint::builder(presets::Minimal)
             .secret_key(SecretKey::from_bytes(&keys.endpoint_key().unwrap()))
             .address_lookup(lookup.clone())
-            .alpns(vec![ALPN.to_vec()])
+            .alpns(vec![ALPN.to_vec(), POST_ALPN.to_vec()])
             .bind()
             .await
             .unwrap();
@@ -76,10 +100,15 @@ impl Online {
             EndpointAddr::new(endpoint.id()).with_ip_addr(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)),
         );
         let peers = Arc::new(Peers::new());
-        let router = Router::builder(endpoint.clone()).accept(ALPN, peers.clone()).spawn();
+        let post = Arc::new(Letters::default());
+        let router = Router::builder(endpoint.clone())
+            .accept(ALPN, peers.clone())
+            .accept(POST_ALPN, Post::new(post.clone()))
+            .spawn();
         Online {
             endpoint,
             peers,
+            post,
             router,
         }
     }
@@ -165,6 +194,114 @@ async fn devices_sync_their_folders_directly_from_an_invitation() {
     assert_eq!(incoming[0].principal.as_deref(), Some("bo@example.com"));
     adas.bring_in(&incoming[0].id, "Bo's review").unwrap();
     assert_eq!(ada.read("Review.md"), "Clause 4 needs a cap\n");
+
+    ada_online.router.shutdown().await.unwrap();
+    bo_online.router.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_known_by_its_card_is_invited_and_joins_without_asking() {
+    let dir = tempfile::tempdir().unwrap();
+    let lookup = MemoryLookup::new();
+    let (ada, bo) = (Device::new(dir.path(), "ada"), Device::new(dir.path(), "bo"));
+    let (ada_keys, bo_keys) = (Keys::generate("ada").unwrap(), Keys::generate("bo").unwrap());
+    let (ada_online, bo_online) = (
+        Online::start(&ada_keys, &lookup).await,
+        Online::start(&bo_keys, &lookup).await,
+    );
+    let adas_card = Card::new(&ada_keys, &ada.principal(), "Ada Lovelace", &ada_online.id()).unwrap();
+    *ada_online.post.card.lock().unwrap() = Some(adas_card.clone());
+    let bos_card = Card::new(&bo_keys, &bo.principal(), "Bo", &bo_online.id()).unwrap();
+
+    // They meet: Bo has Ada's code — her endpoint — and gives her his card by post; her answer is hers.
+    let answer = send_letter(
+        &bo_online.endpoint,
+        ada_online.endpoint.id(),
+        bos_card.certificate(),
+        bos_card.as_bytes(),
+    )
+    .await
+    .unwrap();
+    let Ok(Letter::Card(theirs)) = Letter::parse(&answer) else {
+        panic!("Ada answers with her card")
+    };
+    assert_eq!(theirs, adas_card);
+    assert_eq!(
+        theirs.endpoint(),
+        ada_online.id(),
+        "the card is of the device Bo reached"
+    );
+    assert_eq!(theirs.name(), "Ada Lovelace");
+    let kept = ada_online.post.kept.lock().unwrap().clone();
+    let [Letter::Card(bos_at_ada)] = &kept[..] else {
+        panic!("Ada keeps Bo's card: {kept:?}")
+    };
+
+    // Ada starts a history and invites Bo by his card: he is a member before he asks.
+    ada.write("Heads of terms.docx", "Heads of terms\n");
+    let adas = Folder::found(&ada.state, &ada.work, ada_keys, &ada.principal()).unwrap();
+    adas.save("Heads of terms").unwrap().unwrap();
+    let invitation = adas
+        .invite(bos_at_ada, Role::Writer, "matter", "Matter 2041", &ada_online.id())
+        .unwrap();
+    assert_eq!(
+        adas.invite(bos_at_ada, Role::Writer, "matter", "Matter 2041", &ada_online.id())
+            .unwrap()
+            .group(),
+        invitation.group(),
+        "inviting a member again only invites"
+    );
+    ada_online.sync(&adas).await;
+    let answer = send_letter(
+        &ada_online.endpoint,
+        bo_online.endpoint.id(),
+        adas_card.certificate(),
+        invitation.as_bytes(),
+    )
+    .await
+    .unwrap();
+    assert!(answer.is_empty(), "Bo has no card of his own to answer with");
+    let kept = bo_online.post.kept.lock().unwrap().clone();
+    let [Letter::Invitation(given)] = &kept[..] else {
+        panic!("Bo keeps the invitation: {kept:?}")
+    };
+    assert_eq!(
+        (given.from(), given.to(), given.role(), given.kind(), given.title()),
+        (adas.device(), bos_card.device(), Role::Writer, "matter", "Matter 2041")
+    );
+
+    // An invitation is for its device only.
+    let cy = Device::new(dir.path(), "cy");
+    assert!(
+        Folder::join_invited(
+            &cy.state,
+            &cy.work,
+            Keys::generate("cy").unwrap(),
+            &cy.principal(),
+            given
+        )
+        .is_err()
+    );
+
+    // Bo joins with it: the first sync brings the history, with nobody adding him by hand.
+    let bos = Folder::join_invited(&bo.state, &bo.work, bo_keys, &bo.principal(), given).unwrap();
+    let synced = bo_online.sync(&bos).await;
+    assert!(synced.synced.member, "{synced:?}");
+    let incoming = bos.incoming().unwrap();
+    bos.bring_in(&incoming[0].id, "Ada's").unwrap();
+    assert_eq!(bo.read("Heads of terms.docx"), "Heads of terms\n");
+    assert!(adas.requests().unwrap().is_empty(), "nothing waits for an admin");
+
+    // Each now knows the other from the log: requests and certificates, for cards of their own.
+    let requests = bos.member_requests().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests.iter().any(|request| request.device() == adas.device()));
+    let certificates = bos.certificates().unwrap();
+    assert!(
+        certificates
+            .iter()
+            .any(|certificate| certificate.device() == adas.device() && certificate.endpoint() == ada_online.id())
+    );
 
     ada_online.router.shutdown().await.unwrap();
     bo_online.router.shutdown().await.unwrap();
@@ -269,6 +406,7 @@ async fn devices_on_different_networks_sync_through_a_relay() {
         Online {
             endpoint: endpoint.clone(),
             peers,
+            post: Arc::default(),
             router,
         }
     };

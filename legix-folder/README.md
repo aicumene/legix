@@ -46,6 +46,12 @@ apart from the documents:
   with this device as its admin, and `join` asks to join one. An admin compares the request's fingerprint with the one
   the new device shows and `admit`s it as a writer or a reader; `remove` takes a device out, and the group moves to a
   key the device does not get.
+- **Cards and invitations.** Devices that know each other bring each other in without asking. A device's `Card` holds
+  its signed join request, its endpoint certificate and the name its owner goes by; devices give each other their
+  cards by post (legix-p2p's letters, feature `p2p`), and `member_requests` and `certificates` make cards of the
+  devices a group already shares. `invite` adds the device of a card to the group and makes an `Invitation`, signed
+  by this device, for it — the group, where to sync it from, what the group is to the application; the invited device
+  `join_invited`s, and its first sync brings the history. `Letter` reads either from a letter.
 
 The application keeps the device's `Keys` — in the operating system's keychain, as one secret — and hands them in.
 
